@@ -1,3 +1,8 @@
+# Extended from OpenVSLAM project for testing of GPS fusion
+
+WIP
+
+
 <p align="center">
 <img src="https://raw.githubusercontent.com/xdspacelab/openvslam/master/docs/img/logo.png" width="435px">
 </p>
