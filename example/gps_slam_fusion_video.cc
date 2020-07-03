@@ -19,6 +19,7 @@
 #include "gps_network.h"
 #include "gps_parser.h"
 #include "time_sync.h"
+#include "gps_fusion.h"
 
 using namespace std;
 
@@ -27,11 +28,23 @@ std::thread gps_th;
 fstream gps_out;
 openvslam::Mat44_t camera_pose;
 gps_parser* gps;
+// measured gps value
 geo_location* curr_geo;
+// gps manually provided by user at the start - static correction
+geo_location* start_geo;
 time_sync* time_s;
 cv::VideoCapture cap;
 bool slam_gps_running;
 bool enable_3d_view;
+
+//void calc_world_position() {
+//    Eigen::Matrix3d rotation_cw = camera_pose.block<3, 3>(0, 0);
+//    //Eigen::Matrix3d rot_wc_ = rot_cw.transpose();
+//    Eigen::Vector3d translation_cw = camera_pose.block<3,1>(0, 3);
+//    Eigen::Vector3d cam_center = -rotation_cw.transpose() * translation_cw;
+//}
+
+
 
 void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::config>& cam_cfg,
               const std::string& vid_path, const std::string& map_db_path) {
@@ -44,9 +57,9 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
     }
 
     const auto frame_cnt = cap.get(CV_CAP_PROP_FRAME_COUNT);
-	// ideal time for per frame ms
+    // ideal time for per frame ms
     const milliseconds ideal_timestep_ms((long long)(1000 / cap.get(CV_CAP_PROP_FPS)));
-	//total video time in millisecond
+    //total video time in millisecond
     const double video_time_ms = (frame_cnt / cap.get(CV_CAP_PROP_FPS)) * 1000.0;
 
     spdlog::info("video frame count: " + to_string(frame_cnt));
@@ -71,54 +84,52 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
     auto tp_1 = std::chrono::steady_clock::now();
     // run the SLAM in another thread
     std::thread thread([&]() {
-    for (unsigned int i = 0; i < frame_cnt; ++i) {
-        
+        for (unsigned int i = 0; i < frame_cnt; ++i) {
+            cap.read(img);
 
-        cap.read(img);
+            if (!img.empty()) {
+                // input the current frame and estimate the camera pose
+                camera_pose = SLAM.feed_monocular_frame(img, timestamp);
+                //viewer.get_mat44_cam_pose(camera_pose);
+            }
 
-        if (!img.empty()) {
-            // input the current frame and estimate the camera pose
-            camera_pose = SLAM.feed_monocular_frame(img, timestamp);
+            timestamp += 1.0 / cam_cfg->camera_->fps_;
+            time_s->video_timestamp += ideal_timestep_ms;
+
+            const auto tp_2 = std::chrono::steady_clock::now();
+            const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
+
+            track_times.push_back(track_time);
+
+            wait_for_gps_thread = time_s->is_video_caught_up_gps();
+            if (wait_for_gps_thread > chrono::milliseconds(10)) {
+                //spdlog::info("waiting for gps thread:" + to_string(wait_for_gps_thread.count()));
+                std::this_thread::sleep_for(wait_for_gps_thread - chrono::milliseconds((tp_2 - tp_1).count()));
+            }
+
+            // check if the termination of SLAM system is requested or not
+            if (SLAM.terminate_is_requested() || !slam_gps_running) {
+                break;
+            }
+
+            tp_1 = tp_2;
         }
 
-        timestamp += 1.0 / cam_cfg->camera_->fps_;
-        time_s->video_timestamp += ideal_timestep_ms;
-
-        const auto tp_2 = std::chrono::steady_clock::now();
-        const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
-
-        track_times.push_back(track_time);
-
-        wait_for_gps_thread = time_s->is_video_caught_up_gps();
-        if (wait_for_gps_thread > chrono::milliseconds(10)) {
-            //spdlog::info("waiting for gps thread:" + to_string(wait_for_gps_thread.count()));
-            std::this_thread::sleep_for(wait_for_gps_thread - chrono::milliseconds((tp_2 - tp_1).count()));
+        // wait until the loop BA is finished
+        while (SLAM.loop_BA_is_running()) {
+            std::this_thread::sleep_for(std::chrono::microseconds(5000));
         }
-
-        // check if the termination of SLAM system is requested or not
-        if (SLAM.terminate_is_requested() || !slam_gps_running) {
-            break;
-        }
-
-        tp_1 = tp_2;
-    }
-
-    // wait until the loop BA is finished
-    while (SLAM.loop_BA_is_running()) {
-        std::this_thread::sleep_for(std::chrono::microseconds(5000));
-    }
 
 // automatically close the viewer at the end
 #ifdef USE_PANGOLIN_VIEWER
-    if (enable_3d_view)
-        viewer.request_terminate();
+        if (enable_3d_view)
+            viewer.request_terminate();
 #endif
     });
 
-	
     // run the viewer in the current thread
-#ifdef  USE_PANGOLIN_VIEWER
-	 if (enable_3d_view) {
+#ifdef USE_PANGOLIN_VIEWER
+    if (enable_3d_view) {
         viewer.run();
         spdlog::info("enabling 3D view");
     }
@@ -129,18 +140,17 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
 
 #endif //  USE_PANGOLIN_VIEWER
 
-	 thread.join();
+    thread.join();
 
     SLAM.shutdown();
 
-	if (!map_db_path.empty()) {
+    if (!map_db_path.empty()) {
         // output the map database
         SLAM.save_map_database(map_db_path);
     }
     spdlog::info("exiting slam thread");
     slam_gps_running = false;
 
-	
     std::sort(track_times.begin(), track_times.end());
     const auto total_track_time = std::accumulate(track_times.begin(), track_times.end(), 0.0);
     std::cout << "median tracking time: " << track_times.at(track_times.size() / 2) << "[s]" << std::endl;
@@ -162,30 +172,32 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
     //KF(camera_pose + curr_geo) -> corrected gps location
     gps_out.open(crr_gps_path, fstream::out);
 
-    double iter_time = 1000.0 / (double)freq;
+    const long long iter_time = 1000 / freq;
 
-    auto tp_1 = std::chrono::steady_clock::now();
     while (slam_gps_running) {
-        const auto tp_2 = std::chrono::steady_clock::now();
-
-        const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
-        const auto sleep_time = iter_time - track_time;
+        auto tp_1 = std::chrono::steady_clock::now();
 
         if (gps->is_valid) {
             curr_geo->update_value(*gps);
             spdlog::info("fusion: " + curr_geo->value() + "  gps time: " + to_string(time_s->gps_timestamp.count()) + "  vid: " + to_string(time_s->video_timestamp.count()));
             gps_out << curr_geo->value() + "\n";
-            cout << "fusion cam: " << camera_pose << endl;
+            cout << "fusion cam: \n"
+                 << camera_pose << endl;
+
+			//Incomplete block for fusion -- the idea was to connect with gps_fusion class method here
         }
         else {
             spdlog::warn("fusion: invalid gps");
         }
 
+        const auto tp_2 = std::chrono::steady_clock::now();
+
+        const auto track_time = std::chrono::duration_cast<milliseconds>(tp_2 - tp_1).count();
+        const auto sleep_time = iter_time - track_time;
+
         if (sleep_time > 0.0) {
             spdlog::info("fusion thread sleep for: " + to_string(static_cast<unsigned int>(sleep_time)));
             std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<unsigned int>(sleep_time)));
-
-            tp_1 = tp_2;
         }
     }
 
@@ -256,6 +268,8 @@ int main(int argc, char* argv[]) {
         enable_3d_view = true;
 
     //set start gps location
+    start_geo = &geo_location(st_lat->value(), st_lon->value(), st_alt->value());
+    gps_fusion::start_gps = *start_geo;
     curr_geo = &geo_location(st_lat->value(), st_lon->value(), st_alt->value());
 
     //start slam and gps processes

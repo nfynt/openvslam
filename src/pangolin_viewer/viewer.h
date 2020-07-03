@@ -54,6 +54,9 @@ public:
      */
     bool is_terminated();
 
+	// Nfynt add
+	//void get_mat44_cam_pose(openvslam::Mat44_t& cam);
+
 private:
     /**
      * Create menu panel

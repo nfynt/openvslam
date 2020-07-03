@@ -50,7 +50,6 @@ void gps_update_thread() {
 
     char data[200];
     std::size_t received;
-    //std::chrono::duration<double, std::ratio<1>> freq((double)(1.0 / (double)this->update_freq));
 
     // TCP socket:
     while (true) {
@@ -104,6 +103,9 @@ void start_recording(string ip, int port, int freq, string gps_path, string vide
     fout.close();
     fout.open(gps_path, fstream::app);
     fout << "# $<time,lat,lon,alt>\n";
+
+	// Video record code has been commented since the capture fps is not realiable
+	// External cam recorder is used in parallel to this recording exe for capturing the data
 
     //cap = VideoCapture(cam_ind);
     //if (!cap.isOpened()) {

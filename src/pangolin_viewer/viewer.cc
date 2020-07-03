@@ -184,9 +184,15 @@ void viewer::draw_horizontal_grid() {
 
 pangolin::OpenGlMatrix viewer::get_current_cam_pose() {
     const auto cam_pose_cw = map_publisher_->get_current_cam_pose();
+    //std::cout <<"\n" << cam_pose_cw << std::endl;
     const pangolin::OpenGlMatrix gl_cam_pose_wc(cam_pose_cw.inverse().eval());
     return gl_cam_pose_wc;
 }
+
+//void viewer::get_mat44_cam_pose(openvslam::Mat44_t& cam_pose) {
+//	/*cam_pose = gl_cam_pose_wc.
+//    cam_pose = map_publisher_->get_current_cam_pose();*/
+//}
 
 void viewer::draw_current_cam_pose(const pangolin::OpenGlMatrix& gl_cam_pose_wc) {
     // frustum size of the frame

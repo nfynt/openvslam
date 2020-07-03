@@ -22,9 +22,11 @@ void gps_parser::start_reading(time_sync& time_s) {
         long long last_stamp = 0;
 
         chrono::milliseconds wait_for_vid_thread(0);
-        auto tp_1 = std::chrono::steady_clock::now();
+        
 
         while (getline(fin, msg)) {
+
+            auto tp_1 = std::chrono::steady_clock::now();
             
             if (terminate)
                 break;
@@ -59,16 +61,17 @@ void gps_parser::start_reading(time_sync& time_s) {
              
 			const auto tp_2 = std::chrono::steady_clock::now();
 			// double (s)
-            const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
+            //const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
+            long long track_time = duration_cast<milliseconds>(tp_2 - tp_1).count();
             
-			sleep_time = chrono::milliseconds(this->timestamp - (last_stamp + (long long)(track_time * 1000)));
-            spdlog::info("dt: "+to_string(this->timestamp - last_stamp) +" track: "+ to_string((long long)(track_time * 1000)));
+			sleep_time = chrono::milliseconds(this->timestamp - (last_stamp + track_time));
+            //spdlog::info("dt: "+to_string(this->timestamp - last_stamp) +" track: "+ to_string(track_time));
 			
         time_s.gps_timestamp += chrono::milliseconds(this->timestamp - last_stamp);
 			
         wait_for_vid_thread = time_s.is_gps_caught_up_video();
             if (wait_for_vid_thread + sleep_time > chrono::milliseconds(10)) {
-            spdlog::info("sleeping gps parser for: vid_w:" + to_string(wait_for_vid_thread.count()) + ", s_t: " + to_string(sleep_time.count()));
+            //spdlog::info("sleeping gps parser for: vid_w:" + to_string(wait_for_vid_thread.count()) + ", s_t: " + to_string(sleep_time.count()));
             if (wait_for_vid_thread>sleep_time)
                 std::this_thread::sleep_for(wait_for_vid_thread);
             else
@@ -76,8 +79,6 @@ void gps_parser::start_reading(time_sync& time_s) {
             }
 
             last_stamp = this->timestamp;
-            //sleep_time = 0.0;
-            tp_1 = tp_2;
         }
         spdlog::info("reached end of gps input txt file");
     }
