@@ -71,7 +71,7 @@ unsigned int pose_optimizer::optimize(data::frame& frm) const {
         ++num_init_obs;
         frm.outlier_flags_.at(idx) = false;
 
-        // frameのvertexをreprojection edgeで接続する
+        // frameのvertexをreprojection edgeで接続する - Connect the frame's vertex with the reprojection edge
         const auto& undist_keypt = frm.undist_keypts_.at(idx);
         const float x_right = frm.stereo_x_right_.at(idx);
         const float inv_sigma_sq = frm.inv_level_sigma_sq_.at(undist_keypt.octave);
@@ -89,7 +89,7 @@ unsigned int pose_optimizer::optimize(data::frame& frm) const {
         return 0;
     }
 
-    // 4. robust BAを実行する
+    // 4. robust BAを実行する - execute
 
     unsigned int num_bad_obs = 0;
     for (unsigned int trial = 0; trial < num_trials_; ++trial) {
@@ -138,7 +138,7 @@ unsigned int pose_optimizer::optimize(data::frame& frm) const {
         }
     }
 
-    // 5. 情報を更新
+    // 5. 情報を更新 - Update information
 
     frm.set_cam_pose(frm_vtx->estimate());
 

@@ -143,6 +143,12 @@ public:
     //!! Termination of the system is requested or not
     bool terminate_is_requested() const;
 
+	//-----------------------------------------------
+	//NFYNT updates
+
+	//SLAM tracking state is active
+    bool is_tracking() const;
+
 private:
     //! Check reset request of the system
     void check_reset_request();

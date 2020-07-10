@@ -73,9 +73,11 @@ list(APPEND EXECUTABLE_TARGETS run_video_calibration)
 
 # Additional Projects
 # gps slam fusion
-add_executable(gps_slam_fusion_video gps_slam_fusion_video.cc fusion/gps_fusion.cc fusion/gps_network.cc fusion/gps_parser.cc fusion/time_sync.cc)
+add_executable(gps_slam_fusion_video gps_slam_fusion_video.cc fusion/gps_fusion.cc fusion/gps_network.cc fusion/gps_parser.cc 
+fusion/time_sync.cc  fusion/gps_fusion_kalman.cc fusion/UTM.cc)
 list(APPEND EXECUTABLE_TARGETS gps_slam_fusion_video)
-add_executable(gps_slam_fusion_camera gps_slam_fusion_camera.cc fusion/gps_fusion.cc fusion/gps_network.cc fusion/gps_parser.cc fusion/time_sync.cc)
+add_executable(gps_slam_fusion_camera gps_slam_fusion_camera.cc fusion/gps_fusion.cc fusion/gps_network.cc fusion/gps_parser.cc 
+fusion/time_sync.cc fusion/gps_fusion_kalman.cc fusion/UTM.cc)
 list(APPEND EXECUTABLE_TARGETS gps_slam_fusion_camera)
 
 target_link_libraries(gps_slam_fusion_video PRIVATE ${PROJECT_SOURCE_DIR}/3rd/SFML/lib/sfml-network.lib

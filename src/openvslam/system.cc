@@ -345,4 +345,13 @@ void system::resume_other_threads() const {
     }
 }
 
+//-------------------------------------------------------------------
+// NFYNT methods
+
+bool system::is_tracking() const {
+    if (tracker_->tracking_state_ == tracker_state_t::Tracking) 
+        return true;
+    return false;
+}
+
 } // namespace openvslam

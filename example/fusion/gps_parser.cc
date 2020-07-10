@@ -5,7 +5,7 @@
 
 // Continuously parses the gps text and updated with respect to timestamp. Run in separate thead!
 void gps_parser::start_reading(time_sync& time_s) {
-    this->lat = this->lon = this->alt = "0.0";
+    this->lat = this->lon = this->alt = 0.0;
     this->terminate = false;
 
     ifstream fin;
@@ -46,9 +46,9 @@ void gps_parser::start_reading(time_sync& time_s) {
 
             if (valid) {
                 this->timestamp = stoll(txt[0]);
-                this->lat = txt[1];
-                this->lon = txt[2];
-                this->alt = txt[3];
+                this->lat = stod(txt[1]);
+                this->lon = stod(txt[2]);
+                this->alt = stod(txt[3]);
             }
             else {
                 spdlog::warn(msg);
@@ -91,4 +91,25 @@ void gps_parser::start_reading(time_sync& time_s) {
 void gps_parser::terminate_process() {
     this->terminate = true;
     spdlog::info("Terminating gps parser");
+}
+
+//update and convert new wgs84 to utm
+void gps_parser::update_gps_value(geo_utm& gps) 
+{
+    LatLonToUTMXY(this->lat, this->lon, 0, gps.x, gps.y);
+    (this->lat > 0.0) ? gps.southhemi = false : gps.southhemi = true;
+}
+
+//update gps to new value
+void gps_parser::update_gps_value(geo_location& gps)
+{
+    gps.latitude = this->lat;
+    gps.longitude = this->lon;
+    gps.altitude = this->alt;
+}
+
+// Return direction vector3d for (p2->x - p1->x, altitude, p2->y - p1->y)
+Eigen::Vector3d gps_parser::get_direction_vector(geo_utm& p1, geo_utm& p2, double altitude)
+{
+	return Eigen::Vector3d(p2.x - p1.x, altitude, p2.y - p1.y);
 }

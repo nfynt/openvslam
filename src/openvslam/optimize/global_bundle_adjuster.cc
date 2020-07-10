@@ -23,13 +23,13 @@ global_bundle_adjuster::global_bundle_adjuster(data::map_database* map_db, const
     : map_db_(map_db), num_iter_(num_iter), use_huber_kernel_(use_huber_kernel) {}
 
 void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_global_BA, bool* const force_stop_flag) const {
-    // 1. データを集める
+    // 1. データを集める - Collect data
 
     const auto keyfrms = map_db_->get_all_keyframes();
     const auto lms = map_db_->get_all_landmarks();
     std::vector<bool> is_optimized_lm(lms.size(), true);
 
-    // 2. optimizerを構築
+    // 2. optimizerを構築 - build optimizer
 
     auto linear_solver = g2o::make_unique<g2o::LinearSolverCSparse<g2o::BlockSolver_6_3::PoseMatrixType>>();
     auto block_solver = g2o::make_unique<g2o::BlockSolver_6_3>(std::move(linear_solver));
@@ -42,12 +42,12 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
         optimizer.setForceStopFlag(force_stop_flag);
     }
 
-    // 3. keyframeをg2oのvertexに変換してoptimizerにセットする
+    // 3. keyframeをg2oのvertexに変換してoptimizerにセットする - Convert keyframe to g2o vertex and set to optimizer
 
     // shot vertexのcontainer
     internal::se3::shot_vertex_container keyfrm_vtx_container(0, keyfrms.size());
 
-    // keyframesをoptimizerにセット
+    // keyframesをoptimizerにセット - set keyframes to optimizer
     for (const auto keyfrm : keyfrms) {
         if (!keyfrm) {
             continue;
@@ -60,7 +60,7 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
         optimizer.addVertex(keyfrm_vtx);
     }
 
-    // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する
+    // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する - Connect keyframe and landmark vertex with reprojection edge
 
     // landmark vertexのcontainer
     internal::landmark_vertex_container lm_vtx_container(keyfrm_vtx_container.get_max_vertex_id() + 1, lms.size());
@@ -70,7 +70,7 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
     std::vector<reproj_edge_wrapper> reproj_edge_wraps;
     reproj_edge_wraps.reserve(10 * lms.size());
 
-    // 有意水準5%のカイ2乗値
+    // 有意水準5%のカイ2乗値 - Chi - square value with a significance level of 5 %
     // 自由度n=2
     constexpr float chi_sq_2D = 5.99146;
     const float sqrt_chi_sq_2D = std::sqrt(chi_sq_2D);
@@ -127,7 +127,7 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
         }
     }
 
-    // 5. 最適化を実行
+    // 5. 最適化を実行 - Perform optimization
 
     optimizer.initializeOptimization();
     optimizer.optimize(num_iter_);
@@ -136,7 +136,7 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
         return;
     }
 
-    // 6. 結果を取り出す
+    // 6. 結果を取り出す - Retrieve results
 
     for (auto keyfrm : keyfrms) {
         if (keyfrm->will_be_erased()) {

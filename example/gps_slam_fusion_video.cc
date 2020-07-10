@@ -15,6 +15,7 @@
 #include "openvslam/config.h"
 #include <popl.hpp>
 #include <spdlog/spdlog.h>
+#include "spdlog/fmt/ostr.h"
 
 #include "gps_network.h"
 #include "gps_parser.h"
@@ -26,26 +27,33 @@ using namespace std;
 std::thread slam_th;
 std::thread gps_th;
 fstream gps_out;
+// current camera pose in cw: world -> camera (in SLAM CS)
 openvslam::Mat44_t camera_pose;
 gps_parser* gps;
-// measured gps value
-geo_location* curr_geo;
-// gps manually provided by user at the start - static correction
-geo_location* start_geo;
+// measured gnss UTM (universal time mercator)
+geo_utm* curr_geo;
+// last gnss utm
+geo_utm* last_geo;
+// gps value in UTM converted from manually provided WGS84 by user at the start - static correction
+geo_utm* start_geo;
+// gps initialization - to estimation the transformation between GPS and SLAM coordinate system
+bool gps_initialized;
+
 time_sync* time_s;
+// Video or camera capture
 cv::VideoCapture cap;
+// Flag to signal if both slam and gps are running. Exits the thread if either stops
 bool slam_gps_running;
+// use pangolin for frame and 3D visualization
 bool enable_3d_view;
+// request to reset slam on new initialization
+bool slam_reset_req;
+// flag to check if slam is in tracking state
+bool slam_tracking;
+// 3x3 rotation matrix to transform vector from SLAM world to GPS
+Eigen::Matrix3d R_wgps;
 
-//void calc_world_position() {
-//    Eigen::Matrix3d rotation_cw = camera_pose.block<3, 3>(0, 0);
-//    //Eigen::Matrix3d rot_wc_ = rot_cw.transpose();
-//    Eigen::Vector3d translation_cw = camera_pose.block<3,1>(0, 3);
-//    Eigen::Vector3d cam_center = -rotation_cw.transpose() * translation_cw;
-//}
-
-
-
+// SLAM run in parallel thread
 void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::config>& cam_cfg,
               const std::string& vid_path, const std::string& map_db_path) {
     cap = cv::VideoCapture(vid_path);
@@ -85,13 +93,22 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
     // run the SLAM in another thread
     std::thread thread([&]() {
         for (unsigned int i = 0; i < frame_cnt; ++i) {
+            
+			/*if (slam_reset_req) {
+                spdlog::info("Requesting to reset slam on gps initialization");
+                SLAM.request_reset();
+                slam_reset_req = false;
+                continue;
+            }*/
+
             cap.read(img);
 
             if (!img.empty()) {
                 // input the current frame and estimate the camera pose
                 camera_pose = SLAM.feed_monocular_frame(img, timestamp);
-                //viewer.get_mat44_cam_pose(camera_pose);
             }
+
+			slam_tracking = SLAM.is_tracking();
 
             timestamp += 1.0 / cam_cfg->camera_->fps_;
             time_s->video_timestamp += ideal_timestep_ms;
@@ -122,7 +139,7 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
 
 // automatically close the viewer at the end
 #ifdef USE_PANGOLIN_VIEWER
-        if (enable_3d_view)
+        if (enable_3d_view && !SLAM.terminate_is_requested())
             viewer.request_terminate();
 #endif
     });
@@ -157,6 +174,7 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
     std::cout << "mean tracking time: " << total_track_time / track_times.size() << "[s]" << std::endl;
 }
 
+// Launch GPS parsing thread
 void run_gps(string gps_path) {
     gps = new gps_parser(gps_path);
 
@@ -168,26 +186,106 @@ void run_gps(string gps_path) {
     slam_gps_running = false;
 }
 
+//Launch GPS SLAM fusion thread - outputs the correction gps
+//updates the curr_geo to be used in SLAM thread
 void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
+    
     //KF(camera_pose + curr_geo) -> corrected gps location
     gps_out.open(crr_gps_path, fstream::out);
-
+    gps_initialized = false;
     const long long iter_time = 1000 / freq;
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+	//utm start,curr and last init
+    if (gps->is_valid) {
+        if (start_geo == nullptr) {
+            start_geo = new geo_utm();
+            gps->update_gps_value(*start_geo);
+
+            curr_geo = new geo_utm(*start_geo);
+            last_geo = new geo_utm(*curr_geo);
+        }
+        else {
+            curr_geo->copy_from(start_geo);
+            last_geo->copy_from(curr_geo);
+        }
+        spdlog::info("start gps utm - {}", start_geo->value());
+        spdlog::info("curr gps utm - {}", curr_geo->value());
+    }
+    else {
+        spdlog::critical("fusion: invalid gps");
+        slam_gps_running = false;
+    }
+    
+	//estimate transformation between SLAM world and GPS based on distance
+    while (!gps_initialized && slam_gps_running) {
+        gps->update_gps_value(*curr_geo);
+        if (curr_geo->sq_distance_from(start_geo) > 5.0) {
+            //the sensor has roughly moved 3 meters from start - good enough to initialize?
+
+            //Estimate the camera position in SLAM world cs
+            Eigen::Vector3d w_pos = camera_pose.block(0, 3, 3, 1);
+            Eigen::Vector3d gps_pos = gps_parser::get_direction_vector(*start_geo, *curr_geo);
+            spdlog::info("curr utm - {}", curr_geo->value());
+            std::cout << "\nCamera pos " << w_pos.transpose() 
+				<< "\nGPS pos -" << gps_pos.transpose() << std::endl;
+            
+			w_pos.y = 0;	//ignore y position: assumed to be in same direction as UTM alt
+
+            //Normalize the world and gps direction vector
+            w_pos.normalize();
+            gps_pos.normalize();
+
+			spdlog::info("Coordinate Basis\nWorld:\n{}\nGPS{}", w_pos.transpose(), gps_pos.transpose());
+            //Estimate the rotation matrix to transform from w_pos to gps_pos
+
+            Eigen::Vector3d rotation_axis = gps_pos.cross(w_pos); //ideally will be aligned along Y-axis (UP) which is assumed to be commond between GPS and SLAM
+            rotation_axis.normalize();
+            double angle = std::acos(gps_pos.dot(w_pos));
+
+            Eigen::Quaternion<double> t_quat(Eigen::AngleAxisd(angle, rotation_axis));
+            t_quat.normalize();
+            R_wgps = t_quat.toRotationMatrix();
+
+            std::cout << "Rotation matrix (world->gps)\n"
+                      << R_wgps << "\n";
+
+            gps_initialized = true;
+			//reset slam and update start position (GPS and SLAM) for continuous tracking
+            //slam_reset_req = true;
+            //start_geo->copy_from(curr_geo);
+            last_geo->copy_from(curr_geo);
+            break;
+        }
+        else {
+            spdlog::info("GPS dist: {}\t curr_gps: {}", curr_geo->sq_distance_from(start_geo),curr_geo->value());
+        }
+        //check every 2 sec
+        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    }
 
     while (slam_gps_running) {
         auto tp_1 = std::chrono::steady_clock::now();
 
-        if (gps->is_valid) {
-            curr_geo->update_value(*gps);
-            spdlog::info("fusion: " + curr_geo->value() + "  gps time: " + to_string(time_s->gps_timestamp.count()) + "  vid: " + to_string(time_s->video_timestamp.count()));
-            gps_out << curr_geo->value() + "\n";
+        gps->update_gps_value(*curr_geo);
+
+        if (curr_geo != last_geo && slam_tracking) {
+            spdlog::info("fusion:\ncurr_utm: " + curr_geo->value() + "  gps time: " + to_string(time_s->gps_timestamp.count()) + "  vid: " + to_string(time_s->video_timestamp.count()));
+            //gps_out << curr_geo->value() + "\n";
             cout << "fusion cam: \n"
                  << camera_pose << endl;
 
-			//Incomplete block for fusion -- the idea was to connect with gps_fusion class method here
-        }
-        else {
-            spdlog::warn("fusion: invalid gps");
+            // camera position in SLAM world cs
+            Eigen::Vector3d pos = camera_pose.block(0, 3, 3, 1);
+
+            //Convert to GPS cs
+            pos = R_wgps * pos;
+            //add the start GPS position for offset
+            pos += Eigen::Vector3d(start_geo->x, 0, start_geo->y);
+
+			//pos: (lat, alt, lon) - change to gps_location formation!!
+            gps_out << pos << "\n";
+            spdlog::info("UTM distance: {}\tgps_pos(lat,alt,lon): {}", curr_geo->sq_distance_from(start_geo),pos.transpose());
+            last_geo->copy_from(curr_geo);
         }
 
         const auto tp_2 = std::chrono::steady_clock::now();
@@ -207,6 +305,7 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
 }
 
 int main(int argc, char* argv[]) {
+
     // create options
     popl::OptionParser op("Allowed options for gps client:");
     auto help = op.add<popl::Switch>("h", "help", "produce help message");
@@ -215,8 +314,8 @@ int main(int argc, char* argv[]) {
     auto video_path = op.add<popl::Value<std::string>>("i", "video", "input video path");
     auto gps_path = op.add<popl::Value<std::string>>("g", "gps", "input gps txt path");
     auto crr_gps_path = op.add<popl::Value<std::string>>("o", "cgps", "corrected gps txt path");
-    auto st_lat = op.add<popl::Value<double>>("l", "lat", "Start latitude");
-    auto st_lon = op.add<popl::Value<double>>("m", "lon", "Start longitude");
+    auto st_lat = op.add<popl::Value<double>>("l", "lat", "Start latitude", 0.0);
+    auto st_lon = op.add<popl::Value<double>>("m", "lon", "Start longitude", 0.0);
     auto st_alt = op.add<popl::Value<double>>("a", "alt", "Start altitude", 0.0);
     auto map_db_path = op.add<popl::Value<std::string>>("p", "map-db", "store a map database at this path after SLAM", "");
     auto show_3d = op.add<popl::Value<int>>("s", "show", "show pangolin 3d view", 0);
@@ -238,7 +337,7 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    if (!video_path->is_set() || !gps_path->is_set() || !crr_gps_path->is_set() || !st_lat->is_set() || !st_lon->is_set() || !vocab_file_path->is_set() || !config_file_path->is_set()) {
+    if (!video_path->is_set() || !gps_path->is_set() || !crr_gps_path->is_set() || !vocab_file_path->is_set() || !config_file_path->is_set()) {
         std::cerr << "invalid arguments" << std::endl;
         std::cerr << std::endl;
         std::cerr << op << std::endl;
@@ -268,12 +367,18 @@ int main(int argc, char* argv[]) {
         enable_3d_view = true;
 
     //set start gps location
-    start_geo = &geo_location(st_lat->value(), st_lon->value(), st_alt->value());
-    gps_fusion::start_gps = *start_geo;
-    curr_geo = &geo_location(st_lat->value(), st_lon->value(), st_alt->value());
+    if (st_lat->value() != 0) {
+        geo_location wgs = geo_location(st_lat->value(), st_lon->value(), st_alt->value());
+        start_geo = new geo_utm(wgs);
+        curr_geo = new geo_utm(*start_geo);
+        last_geo = new geo_utm(*curr_geo);
+        spdlog::info("start gnss\t(wgs84) {}\t(utm) {}", wgs.value(), start_geo->value());
+        //gps_fusion::start_gps = *start_geo;
+    }
 
     //start slam and gps processes
     slam_gps_running = true;
+    slam_reset_req = false;
     //time_sync::gps_timestamp = time_sync::video_timestamp = chrono::milliseconds(0);
     time_s = new time_sync();
 
