@@ -513,4 +513,16 @@ void mapping_module::terminate() {
     is_terminated_ = true;
 }
 
+//--------------------------------------------------------------
+// NFYNT additions
+
+void mapping_module::queue_gnss_measurement(Eigen::Vector3d* t_wgnss, float* var_gps)
+{
+    gnss_queue_.push_back(std::make_pair(t_wgnss, var_gps));
+}
+
+int mapping_module::get_num_gnss_measurement() {
+    return gnss_queue_.size();
+}
+
 } // namespace openvslam

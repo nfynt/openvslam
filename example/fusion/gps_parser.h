@@ -33,6 +33,7 @@ public:
     //update gps to new value
     void update_gps_value(geo_location& gps);
 
+	// Return direction vector3d for (p2->x - p1->x, altitude, p2->y - p1->y)
     static Eigen::Vector3d get_direction_vector(geo_utm& p1, geo_utm& p2, double altitude = 0.0);
 
     double lat, lon, alt;
@@ -163,4 +164,9 @@ struct geo_utm {
     inline double sq_distance_from(geo_utm* target) {
         return std::pow(this->x - target->x, 2) + std::pow(this->y - target->y, 2);
     }
+
+	inline Eigen::Vector3d get_vector()
+	{
+        return Eigen::Vector3d(this->x, 0, this->y);
+	}
 };

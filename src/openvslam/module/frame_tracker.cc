@@ -18,18 +18,18 @@ frame_tracker::frame_tracker(camera::base* camera, const unsigned int num_matche
 bool frame_tracker::motion_based_track(data::frame& curr_frm, const data::frame& last_frm, const Mat44_t& velocity) const {
     match::projection projection_matcher(0.9, true);
 
-    // motion modelを使って姿勢の初期値を設定
+    // motion modelを使って姿勢の初期値を設定	-	Set initial value of posture using motion model
     curr_frm.set_cam_pose(velocity * last_frm.cam_pose_cw_);
 
-    // 2D-3D対応を初期化
+    // 2D-3D対応を初期化	-	Initialize 2D-3D support
     std::fill(curr_frm.landmarks_.begin(), curr_frm.landmarks_.end(), nullptr);
 
-    // last frameで見えている3次元点を再投影して2D-3D対応を見つける
+    // last frameで見えている3次元点を再投影して2D-3D対応を見つける	-	Reproject 3D points visible in last frame to find 2D-3D correspondence
     const float margin = (camera_->setup_type_ != camera::setup_type_t::Stereo) ? 20 : 10;
     auto num_matches = projection_matcher.match_current_and_last_frames(curr_frm, last_frm, margin);
 
     if (num_matches < num_matches_thr_) {
-        // marginを広げて再探索
+        // marginを広げて再探索	-	Expand the margin and search again
         std::fill(curr_frm.landmarks_.begin(), curr_frm.landmarks_.end(), nullptr);
         num_matches = projection_matcher.match_current_and_last_frames(curr_frm, last_frm, 2 * margin);
     }

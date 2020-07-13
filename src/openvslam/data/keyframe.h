@@ -285,6 +285,20 @@ public:
     //! list of 1 / sigma^2 for optimization
     const std::vector<float> inv_level_sigma_sq_;
 
+	//------------------------------------------------------------
+	//NFYNT additions
+
+	// the optimized gnss translation vector maintained from local_bundle_adjuster
+	Eigen::Vector3d t_gnss;
+
+	// expected variance of gnss
+    float gnss_variance;
+
+    // gnss measurement available for this keyframe
+    bool has_gnss_measurement();
+
+    void add_gnss_measurement(Eigen::Vector3d* t_gnss, float* var_gnss);
+
 private:
     //-----------------------------------------
     // camera pose
@@ -324,6 +338,13 @@ private:
 
     //! flag which indicates this keyframe will be erased
     std::atomic<bool> will_be_erased_{false};
+
+	//--------------------------------------------------------------
+    // NFYNT additions
+
+    //gnss measurement
+    bool has_gnss;
+	
 };
 
 } // namespace data

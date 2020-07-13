@@ -14,6 +14,7 @@
 
 #include <chrono>
 #include <unordered_map>
+#include <utility>
 
 #include <spdlog/spdlog.h>
 
@@ -238,6 +239,14 @@ void tracking_module::track() {
         // check to insert the new keyframe derived from the current frame
         if (succeeded && new_keyframe_is_needed()) {
             insert_new_keyframe();
+
+            //update gnss measurement in new keyframe
+            //??
+            if (mapper_->get_num_gnss_measurement() > 0) {
+                std::pair<Eigen::Vector3d*, float*> gnss = mapper_->gnss_queue_.front();
+                mapper_->gnss_queue_.pop_front();
+                curr_frm_.ref_keyfrm_->add_gnss_measurement(gnss.first, gnss.second);
+            }
         }
 
         // tidy up observations

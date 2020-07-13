@@ -2,6 +2,8 @@
 #include "openvslam/data/landmark.h"
 #include "openvslam/data/map_database.h"
 #include "openvslam/optimize/local_bundle_adjuster.h"
+#include "openvslam/optimize/internal/gnss_vertex.h"
+#include "openvslam/optimize/internal/gnss_measurement_edge.h"
 #include "openvslam/optimize/internal/landmark_vertex_container.h"
 #include "openvslam/optimize/internal/se3/shot_vertex_container.h"
 #include "openvslam/optimize/internal/se3/reproj_edge_wrapper.h"
@@ -134,6 +136,33 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
         optimizer.addVertex(keyfrm_vtx);
     }
 
+    //NFYNT additions
+
+    //3.1 add GNSS measurement vertices		== create new wrapper for GNSS vertices
+    // for (auto& kfr : all_keyfrms) {
+    //     auto fr = kfr.second;
+    //     if (fr->has_gnss_measurement()) {
+    //
+    //		auto gnss_vrt = new internal::gnss_vertex();
+    //         gnss_vrt->setEstimate(fr->t_gnss);
+    //         gnss_vrt->setFixed(false);
+    //         gnss_vrt->setMarginalized(true);
+    //         optimizer.addVertex(gnss_vrt);
+    //     }
+    // }
+
+    auto gnss_vrt = new internal::gnss_vertex();
+
+    if (curr_keyfrm->has_gnss_measurement()) {
+        unsigned int gnss_id_offset = 100000;
+        Eigen::Vector3d est = curr_keyfrm->get_cam_pose().block<3, 1>(0, 3);
+        gnss_vrt->setId(gnss_id_offset + curr_keyfrm->id_);
+        gnss_vrt->setEstimate(est);
+        gnss_vrt->setFixed(false);
+        gnss_vrt->setMarginalized(true);
+        optimizer.addVertex(gnss_vrt);
+    }
+
     // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する - Connect keyframe and landmark vertex with reprojection edge
 
     // landmark vertexのcontainer
@@ -173,7 +202,7 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
             const auto keyfrm_vtx = keyfrm_vtx_container.get_vertex(keyfrm);
             const auto& undist_keypt = keyfrm->undist_keypts_.at(idx);
             const float x_right = keyfrm->stereo_x_right_.at(idx);
-            const float inv_sigma_sq = keyfrm->inv_level_sigma_sq_.at(undist_keypt.octave);
+            const float inv_sigma_sq = keyfrm->inv_level_sigma_sq_.at(undist_keypt.octave); // 1/scale factor depending upon orb levels (=8). i.e 1/1.2 for ocatave 1
             const auto sqrt_chi_sq = (keyfrm->camera_->setup_type_ == camera::setup_type_t::Monocular)
                                          ? sqrt_chi_sq_2D
                                          : sqrt_chi_sq_3D;
@@ -185,6 +214,20 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
         }
     }
 
+    //4.1 GNSS edge from gnss_vertex to current keyframe
+    if (curr_keyfrm->has_gnss_measurement()) {
+        g2o::OptimizableGraph::Edge* edge_;
+        auto gnss_edge = new internal::gnss_measurement_edge();
+        Vec3_t obs= curr_keyfrm->t_gnss;
+        gnss_edge->setVertex(0, gnss_vrt);
+        gnss_edge->setMeasurement(obs);
+        gnss_edge->setInformation(Mat33_t::Identity());
+        edge_ = gnss_edge;
+		//kernel function
+        edge_->setRobustKernel(new g2o::RobustKernelHuber());
+        optimizer.addEdge(edge_);
+    }
+
     // 5. 1回目の最適化を実行 - Run the first optimization
 
     if (force_stop_flag) {
@@ -192,7 +235,8 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
             return;
         }
     }
-
+	
+    optimizer.setVerbose(true);
     optimizer.initializeOptimization();
     optimizer.optimize(num_first_iter_);
 

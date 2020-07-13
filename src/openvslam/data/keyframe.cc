@@ -432,5 +432,20 @@ bool keyframe::will_be_erased() {
     return will_be_erased_;
 }
 
+//-------------------------------------------------------------------
+// NFYNT additions
+
+void keyframe::add_gnss_measurement(Eigen::Vector3d* t_g, float* var_gnss)
+{
+    t_gnss = *t_g;
+    gnss_variance = *var_gnss;
+    has_gnss = true;
+}
+
+bool keyframe::has_gnss_measurement() {
+    return has_gnss;
+}
+
+
 } // namespace data
 } // namespace openvslam

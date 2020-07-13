@@ -244,6 +244,7 @@ public:
     //! list of 1 / sigma^2 for optimization
     std::vector<float> inv_level_sigma_sq_;
 
+
 private:
     //! enumeration to control the behavior of extract_orb()
     enum class image_side { Left,
@@ -272,6 +273,8 @@ private:
     Mat33_t rot_wc_;
     //! translation: camera -> world
     Vec3_t cam_center_;
+
+	
 };
 
 } // namespace data

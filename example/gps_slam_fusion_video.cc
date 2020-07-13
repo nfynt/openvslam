@@ -47,11 +47,15 @@ bool slam_gps_running;
 // use pangolin for frame and 3D visualization
 bool enable_3d_view;
 // request to reset slam on new initialization
-bool slam_reset_req;
+//bool slam_reset_req;
+
 // flag to check if slam is in tracking state
 bool slam_tracking;
 // 3x3 rotation matrix to transform vector from SLAM world to GPS
 Eigen::Matrix3d R_wgps;
+openvslam::system* SLAM;
+// expected gnss variance
+float var_gnss;
 
 // SLAM run in parallel thread
 void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::config>& cam_cfg,
@@ -73,14 +77,16 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
     spdlog::info("video frame count: " + to_string(frame_cnt));
 
     // build a SLAM system
-    openvslam::system SLAM(cam_cfg, vocab_path);
+   // openvslam::system SLAM(cam_cfg, vocab_path);
+    SLAM = new openvslam::system(cam_cfg, vocab_path);
+
     // startup the SLAM process
-    SLAM.startup();
+    SLAM->startup();
 
     // create a viewer object
     // and pass the frame_publisher and the map_publisher
 #ifdef USE_PANGOLIN_VIEWER
-    pangolin_viewer::viewer viewer(cam_cfg, &SLAM, SLAM.get_frame_publisher(), SLAM.get_map_publisher());
+    pangolin_viewer::viewer viewer(cam_cfg, SLAM, SLAM->get_frame_publisher(), SLAM->get_map_publisher());
 #endif
 
     double timestamp = 0.0;
@@ -105,10 +111,10 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
 
             if (!img.empty()) {
                 // input the current frame and estimate the camera pose
-                camera_pose = SLAM.feed_monocular_frame(img, timestamp);
+                camera_pose = SLAM->feed_monocular_frame(img, timestamp);
             }
 
-			slam_tracking = SLAM.is_tracking();
+			slam_tracking = SLAM->is_tracking();
 
             timestamp += 1.0 / cam_cfg->camera_->fps_;
             time_s->video_timestamp += ideal_timestep_ms;
@@ -125,7 +131,7 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
             }
 
             // check if the termination of SLAM system is requested or not
-            if (SLAM.terminate_is_requested() || !slam_gps_running) {
+            if (SLAM->terminate_is_requested() || !slam_gps_running) {
                 break;
             }
 
@@ -133,13 +139,13 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
         }
 
         // wait until the loop BA is finished
-        while (SLAM.loop_BA_is_running()) {
+        while (SLAM->loop_BA_is_running()) {
             std::this_thread::sleep_for(std::chrono::microseconds(5000));
         }
 
 // automatically close the viewer at the end
 #ifdef USE_PANGOLIN_VIEWER
-        if (enable_3d_view && !SLAM.terminate_is_requested())
+        if (enable_3d_view && !SLAM->terminate_is_requested())
             viewer.request_terminate();
 #endif
     });
@@ -159,11 +165,11 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
 
     thread.join();
 
-    SLAM.shutdown();
+    SLAM->shutdown();
 
     if (!map_db_path.empty()) {
         // output the map database
-        SLAM.save_map_database(map_db_path);
+        SLAM->save_map_database(map_db_path);
     }
     spdlog::info("exiting slam thread");
     slam_gps_running = false;
@@ -229,7 +235,7 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
             std::cout << "\nCamera pos " << w_pos.transpose() 
 				<< "\nGPS pos -" << gps_pos.transpose() << std::endl;
             
-			w_pos.y = 0;	//ignore y position: assumed to be in same direction as UTM alt
+			//w_pos.y = 0;	//ignore y position: assumed to be in same direction as UTM alt
 
             //Normalize the world and gps direction vector
             w_pos.normalize();
@@ -269,7 +275,12 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
         gps->update_gps_value(*curr_geo);
 
         if (curr_geo != last_geo && slam_tracking) {
-            spdlog::info("fusion:\ncurr_utm: " + curr_geo->value() + "  gps time: " + to_string(time_s->gps_timestamp.count()) + "  vid: " + to_string(time_s->video_timestamp.count()));
+			// gps translation transformed to slam world
+            Eigen::Vector3d t_gnss = R_wgps.inverse() * (curr_geo->get_vector() - start_geo->get_vector());
+            
+			SLAM->feed_GNSS_measurement(t_gnss, var_gnss);
+
+            spdlog::info("fusion:\ncurr_utm: {}\tt_gps: {}\ngps time: {}\tvid: {}",curr_geo->value(),t_gnss, time_s->gps_timestamp.count(), time_s->video_timestamp.count());
             //gps_out << curr_geo->value() + "\n";
             cout << "fusion cam: \n"
                  << camera_pose << endl;
@@ -317,6 +328,7 @@ int main(int argc, char* argv[]) {
     auto st_lat = op.add<popl::Value<double>>("l", "lat", "Start latitude", 0.0);
     auto st_lon = op.add<popl::Value<double>>("m", "lon", "Start longitude", 0.0);
     auto st_alt = op.add<popl::Value<double>>("a", "alt", "Start altitude", 0.0);
+    auto gnss_var = op.add<popl::Value<float>>("z", "var", "GNSS variance", 20.0);
     auto map_db_path = op.add<popl::Value<std::string>>("p", "map-db", "store a map database at this path after SLAM", "");
     auto show_3d = op.add<popl::Value<int>>("s", "show", "show pangolin 3d view", 0);
     auto debug_mode = op.add<popl::Switch>("", "debug", "debug mode");
@@ -344,6 +356,7 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+	var_gnss = gnss_var->value();
     // setup logger
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] %^[%L] %v%$");
     if (debug_mode->is_set()) {
@@ -378,7 +391,7 @@ int main(int argc, char* argv[]) {
 
     //start slam and gps processes
     slam_gps_running = true;
-    slam_reset_req = false;
+    //slam_reset_req = false;
     //time_sync::gps_timestamp = time_sync::video_timestamp = chrono::milliseconds(0);
     time_s = new time_sync();
 

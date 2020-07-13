@@ -354,4 +354,18 @@ bool system::is_tracking() const {
     return false;
 }
 
+void system::feed_GNSS_measurement(Eigen::Vector3d t_wgnss, float var_gps) {
+
+	//abort if not tracking
+    if (tracker_->tracking_state_ != tracker_state_t::Tracking) {
+        spdlog::warn("Tracking is not active... curr gnss will be dropped");
+        return;
+	}
+
+    mapper_->queue_gnss_measurement(&t_wgnss, &var_gps);
+	//tracker_->curr_frm_.add_gnss_measurement(t_wgnss);
+}
+
+
+
 } // namespace openvslam

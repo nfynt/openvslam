@@ -149,6 +149,10 @@ public:
 	//SLAM tracking state is active
     bool is_tracking() const;
 
+	//Add gps translation to queue (transformed from utm to SLAM world)
+	//and variance of measurement
+	void feed_GNSS_measurement(Eigen::Vector3d t_wgps, float var_gps);
+
 private:
     //! Check reset request of the system
     void check_reset_request();

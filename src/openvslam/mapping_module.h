@@ -8,6 +8,7 @@
 #include <mutex>
 #include <atomic>
 #include <memory>
+#include <utility>
 
 namespace openvslam {
 
@@ -97,6 +98,19 @@ public:
     //! Abort the local BA externally
     //! (NOTE: this function does not wait for abort)
     void abort_local_BA();
+
+
+	//--------------------------------------------------------------
+    // NFYNT additions
+
+    // add world gnss measurement with variance factor to queue
+    void queue_gnss_measurement(Eigen::Vector3d* t_wgnss, float* var_gps);
+
+	// number of gnss measurement in queue
+	int get_num_gnss_measurement();
+
+    // gnss measurement queue
+    std::list<std::pair<Eigen::Vector3d*, float*>> gnss_queue_;
 
 private:
     //-----------------------------------------
@@ -222,6 +236,12 @@ private:
 
     //! current keyframe which is used in the current mapping
     data::keyframe* cur_keyfrm_ = nullptr;
+
+	//--------------------------------------------------------------
+    // NFYNT additions
+
+
+
 };
 
 } // namespace openvslam

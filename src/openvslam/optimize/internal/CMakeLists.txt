@@ -2,7 +2,9 @@
 target_sources(${PROJECT_NAME}
                PRIVATE
                ${CMAKE_CURRENT_SOURCE_DIR}/landmark_vertex_container.h
-               ${CMAKE_CURRENT_SOURCE_DIR}/landmark_vertex.h)
+               ${CMAKE_CURRENT_SOURCE_DIR}/landmark_vertex.h
+               ${CMAKE_CURRENT_SOURCE_DIR}/gnss_vertex.h
+               ${CMAKE_CURRENT_SOURCE_DIR}/gnss_measurement_edge.h)
 
 # Install headers
 file(GLOB HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
