@@ -17,9 +17,10 @@
 #include <spdlog/spdlog.h>
 #include "spdlog/fmt/ostr.h"
 
+#include "openvslam/util/time_sync.h"
+
 #include "gps_network.h"
 #include "gps_parser.h"
-#include "time_sync.h"
 #include "gps_fusion.h"
 
 using namespace std;
@@ -39,7 +40,8 @@ geo_utm* start_geo;
 // gps initialization - to estimation the transformation between GPS and SLAM coordinate system
 bool gps_initialized;
 
-time_sync* time_s;
+// time synchronization between SLAM and GPS thread. Initialize it before SLAM::system
+openvslam::util::time_sync* time_s;
 // Video or camera capture
 cv::VideoCapture cap;
 // Flag to signal if both slam and gps are running. Exits the thread if either stops
@@ -79,6 +81,9 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
     // build a SLAM system
    // openvslam::system SLAM(cam_cfg, vocab_path);
     SLAM = new openvslam::system(cam_cfg, vocab_path);
+
+	//set time_sync
+    SLAM->set_time_sync_ptr(time_s);
 
     // startup the SLAM process
     SLAM->startup();
@@ -274,16 +279,17 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
 
         gps->update_gps_value(*curr_geo);
 
-        if (curr_geo != last_geo && slam_tracking) {
+        if (!curr_geo->equals(last_geo) && slam_tracking) {
 			// gps translation transformed to slam world
             Eigen::Vector3d t_gnss = R_wgps.inverse() * (curr_geo->get_vector() - start_geo->get_vector());
             
-			SLAM->feed_GNSS_measurement(t_gnss, var_gnss);
-
-            spdlog::info("fusion:\ncurr_utm: {}\tt_gps: {}\ngps time: {}\tvid: {}",curr_geo->value(),t_gnss, time_s->gps_timestamp.count(), time_s->video_timestamp.count());
+			SLAM->feed_GNSS_measurement(t_gnss, var_gnss, gps->get_last_timestamp());
+            
+			Eigen::Vector3d w_pos = camera_pose.block(0, 3, 3, 1);
+            spdlog::info("fusion:\ncurr_utm: {}\nt_gps: {}\nt_wslam: {}\ngps time: {}\tvid: {}",curr_geo->value(),t_gnss.transpose(),w_pos.transpose(), time_s->gps_timestamp.count(), time_s->video_timestamp.count());
             //gps_out << curr_geo->value() + "\n";
-            cout << "fusion cam: \n"
-                 << camera_pose << endl;
+            //cout << "fusion cam: \n"
+                 //<< camera_pose << endl;
 
             // camera position in SLAM world cs
             Eigen::Vector3d pos = camera_pose.block(0, 3, 3, 1);
@@ -393,7 +399,7 @@ int main(int argc, char* argv[]) {
     slam_gps_running = true;
     //slam_reset_req = false;
     //time_sync::gps_timestamp = time_sync::video_timestamp = chrono::milliseconds(0);
-    time_s = new time_sync();
+    time_s = new openvslam::util::time_sync();
 
     slam_th = thread(run_slam, vocab_file_path->value(), cfg, video_path->value(), map_db_path->value());
     gps_th = thread(run_gps, gps_path->value());
@@ -406,3 +412,13 @@ int main(int argc, char* argv[]) {
 
     return EXIT_SUCCESS;
 }
+
+
+
+/*
+ __  _ _____   ____  _ _____  
+|  \| | __\ `v' /  \| |_   _| 
+| | ' | _| `. .'| | ' | | |   
+|_|\__|_|   !_! |_|\__| |_|
+ 
+*/

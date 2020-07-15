@@ -80,23 +80,14 @@ inline void gnss_measurement_edge::linearizeOplus() {
     _jacobianOplusXi(0, 0) = 1;
     _jacobianOplusXi(0, 1) = 0;
     _jacobianOplusXi(0, 2) = 0;
-    _jacobianOplusXi(0, 3) = 0;
-    _jacobianOplusXi(0, 4) = 0;
-    _jacobianOplusXi(0, 5) = 0;
 	//de/dy
     _jacobianOplusXi(1, 0) = 0;
     _jacobianOplusXi(1, 1) = 1;
     _jacobianOplusXi(1, 2) = 0;
-    _jacobianOplusXi(1, 3) = 0;
-    _jacobianOplusXi(1, 4) = 0;
-    _jacobianOplusXi(1, 5) = 0;
 	//de/dz
     _jacobianOplusXi(2, 0) = 0;
     _jacobianOplusXi(2, 1) = 0;
     _jacobianOplusXi(2, 2) = 1;
-    _jacobianOplusXi(2, 3) = 0;
-    _jacobianOplusXi(2, 4) = 0;
-    _jacobianOplusXi(2, 5) = 0;
 }
 
 
@@ -106,3 +97,14 @@ inline void gnss_measurement_edge::linearizeOplus() {
 } // namespace openvslam
 
 #endif // OPENVSLAM_OPTIMIZER_G2O_GNSS_MEASUREMENT_EDGE_H
+
+
+
+
+/*
+ __  _ _____   ____  _ _____  
+|  \| | __\ `v' /  \| |_   _| 
+| | ' | _| `. .'| | ' | | |   
+|_|\__|_|   !_! |_|\__| |_|
+ 
+*/

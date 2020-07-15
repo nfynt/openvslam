@@ -4,7 +4,7 @@
 
 
 // Continuously parses the gps text and updated with respect to timestamp. Run in separate thead!
-void gps_parser::start_reading(time_sync& time_s) {
+void gps_parser::start_reading(openvslam::util::time_sync& time_s) {
     this->lat = this->lon = this->alt = 0.0;
     this->terminate = false;
 
@@ -66,7 +66,9 @@ void gps_parser::start_reading(time_sync& time_s) {
             
 			sleep_time = chrono::milliseconds(this->timestamp - (last_stamp + track_time));
             //spdlog::info("dt: "+to_string(this->timestamp - last_stamp) +" track: "+ to_string(track_time));
-			
+            spdlog::info("time gap (in ms) between process and gps time = {}", this->timestamp - time_s.get_dt_start());
+
+
         time_s.gps_timestamp += chrono::milliseconds(this->timestamp - last_stamp);
 			
         wait_for_vid_thread = time_s.is_gps_caught_up_video();
@@ -100,6 +102,11 @@ void gps_parser::update_gps_value(geo_utm& gps)
     (this->lat > 0.0) ? gps.southhemi = false : gps.southhemi = true;
 }
 
+inline long gps_parser::get_last_timestamp()
+{
+    return this->timestamp;
+}
+
 //update gps to new value
 void gps_parser::update_gps_value(geo_location& gps)
 {
@@ -113,3 +120,13 @@ Eigen::Vector3d gps_parser::get_direction_vector(geo_utm& p1, geo_utm& p2, doubl
 {
 	return Eigen::Vector3d(p2.x - p1.x, altitude, p2.y - p1.y);
 }
+
+
+
+/*
+ __  _ _____   ____  _ _____  
+|  \| | __\ `v' /  \| |_   _| 
+| | ' | _| `. .'| | ' | | |   
+|_|\__|_|   !_! |_|\__| |_|
+ 
+*/

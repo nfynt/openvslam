@@ -241,10 +241,9 @@ void tracking_module::track() {
             insert_new_keyframe();
 
             //update gnss measurement in new keyframe
-            //??
             if (mapper_->get_num_gnss_measurement() > 0) {
-                std::pair<Eigen::Vector3d*, float*> gnss = mapper_->gnss_queue_.front();
-                mapper_->gnss_queue_.pop_front();
+				//time synchronized gnss value to skip measurement of already estimated poses
+                std::pair<Eigen::Vector3d*, float*> gnss = mapper_->dequeue_gnss_measurement(true);
                 curr_frm_.ref_keyfrm_->add_gnss_measurement(gnss.first, gnss.second);
             }
         }

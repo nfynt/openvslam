@@ -4,6 +4,8 @@
 #include "openvslam/type.h"
 #include "openvslam/data/bow_vocabulary.h"
 
+#include "openvslam/util/time_sync.h"
+
 #include <string>
 #include <thread>
 #include <mutex>
@@ -143,15 +145,20 @@ public:
     //!! Termination of the system is requested or not
     bool terminate_is_requested() const;
 
-	//-----------------------------------------------
-	//NFYNT updates
+    //-----------------------------------------------
+    //NFYNT updates
 
-	//SLAM tracking state is active
+    //SLAM tracking state is active
     bool is_tracking() const;
 
-	//Add gps translation to queue (transformed from utm to SLAM world)
-	//and variance of measurement
-	void feed_GNSS_measurement(Eigen::Vector3d t_wgps, float var_gps);
+    //set reference for time_sync. Call it after the system contructor
+    inline void set_time_sync_ptr(util::time_sync* time_s) {
+        mapper_->set_time_sync_ptr(time_s);
+    }
+
+    //Add gps translation to queue (transformed from utm to SLAM world)
+    //and variance of measurement
+    void feed_GNSS_measurement(Eigen::Vector3d t_wgps, float var_gps, long timestamp);
 
 private:
     //! Check reset request of the system

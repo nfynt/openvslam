@@ -10,6 +10,7 @@ target_sources(${PROJECT_NAME}
                ${CMAKE_CURRENT_SOURCE_DIR}/local_map_updater.h
                ${CMAKE_CURRENT_SOURCE_DIR}/loop_detector.h
                ${CMAKE_CURRENT_SOURCE_DIR}/loop_bundle_adjuster.h
+               ${CMAKE_CURRENT_SOURCE_DIR}/gnss_container.h
                ${CMAKE_CURRENT_SOURCE_DIR}/initializer.cc
                ${CMAKE_CURRENT_SOURCE_DIR}/relocalizer.cc
                ${CMAKE_CURRENT_SOURCE_DIR}/frame_tracker.cc

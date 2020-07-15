@@ -22,6 +22,9 @@ public:
     void setToOriginImpl() override;
 
     void oplusImpl(const double* update) override;
+
+	//gnss variance
+	//double sigma_sq;
 };
 
 inline gnss_vertex::gnss_vertex()
@@ -60,3 +63,14 @@ inline void gnss_vertex::oplusImpl(const double* update) {
 
 
 //Added by NFYNT for GNSS vertex node for Hyper-graph optimization
+
+
+
+
+/*
+ __  _ _____   ____  _ _____  
+|  \| | __\ `v' /  \| |_   _| 
+| | ' | _| `. .'| | ' | | |   
+|_|\__|_|   !_! |_|\__| |_|
+ 
+*/

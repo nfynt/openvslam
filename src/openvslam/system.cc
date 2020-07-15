@@ -354,7 +354,7 @@ bool system::is_tracking() const {
     return false;
 }
 
-void system::feed_GNSS_measurement(Eigen::Vector3d t_wgnss, float var_gps) {
+void system::feed_GNSS_measurement(Eigen::Vector3d t_wgnss, float var_gps, long timestamp) {
 
 	//abort if not tracking
     if (tracker_->tracking_state_ != tracker_state_t::Tracking) {
@@ -362,7 +362,7 @@ void system::feed_GNSS_measurement(Eigen::Vector3d t_wgnss, float var_gps) {
         return;
 	}
 
-    mapper_->queue_gnss_measurement(&t_wgnss, &var_gps);
+    mapper_->enqueue_gnss_measurement(&t_wgnss, &var_gps, &timestamp);
 	//tracker_->curr_frm_.add_gnss_measurement(t_wgnss);
 }
 

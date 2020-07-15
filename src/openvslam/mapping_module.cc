@@ -20,6 +20,8 @@ mapping_module::mapping_module(data::map_database* map_db, const bool is_monocul
     : local_map_cleaner_(new module::local_map_cleaner(is_monocular)), map_db_(map_db),
       local_bundle_adjuster_(new optimize::local_bundle_adjuster()), is_monocular_(is_monocular) {
     spdlog::debug("CONSTRUCT: mapping_module");
+
+	gnss_data = new gnss_container();
 }
 
 mapping_module::~mapping_module() {
@@ -516,13 +518,30 @@ void mapping_module::terminate() {
 //--------------------------------------------------------------
 // NFYNT additions
 
-void mapping_module::queue_gnss_measurement(Eigen::Vector3d* t_wgnss, float* var_gps)
+void mapping_module::set_time_sync_ptr(util::time_sync* time_s) {
+    time_sync_ = time_s;
+}
+
+void mapping_module::enqueue_gnss_measurement(Eigen::Vector3d* t_wgnss, float* var_gps, long* timestamp)
 {
-    gnss_queue_.push_back(std::make_pair(t_wgnss, var_gps));
+    gnss_data->enqueue_gnss_measurement(t_wgnss, var_gps, timestamp);
+}
+
+std::pair<Eigen::Vector3d*, float*> mapping_module::dequeue_gnss_measurement()
+{
+    return gnss_data->dequeue_gnss_measurement();
+}
+
+std::pair<Eigen::Vector3d*, float*> mapping_module::dequeue_gnss_measurement(bool time_sync, bool real_time) {
+   
+	if (real_time)
+		return gnss_data->dequeue_gnss_measurement(time_sync_->get_dt_start());
+
+    return gnss_data->dequeue_latest_gnss();
 }
 
 int mapping_module::get_num_gnss_measurement() {
-    return gnss_queue_.size();
+    return gnss_data->get_num_gnss_measurement();
 }
 
 } // namespace openvslam

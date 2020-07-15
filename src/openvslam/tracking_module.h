@@ -44,6 +44,7 @@ public:
     tracking_module(const std::shared_ptr<config>& cfg, system* system, data::map_database* map_db,
                     data::bow_vocabulary* bow_vocab, data::bow_database* bow_db);
 
+	
     //! Destructor
     ~tracking_module();
 
@@ -247,6 +248,8 @@ protected:
 
     //! Pause of the tracking module is requested or not
     bool pause_is_requested_ = false;
+
+
 };
 
 } // namespace openvslam

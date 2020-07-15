@@ -5,6 +5,9 @@
 #include "openvslam/module/local_map_cleaner.h"
 #include "openvslam/optimize/local_bundle_adjuster.h"
 
+#include "openvslam/module/gnss_container.h"
+#include "openvslam/util/time_sync.h"
+
 #include <mutex>
 #include <atomic>
 #include <memory>
@@ -99,18 +102,26 @@ public:
     //! (NOTE: this function does not wait for abort)
     void abort_local_BA();
 
-
-	//--------------------------------------------------------------
+    //--------------------------------------------------------------
     // NFYNT additions
 
+    void set_time_sync_ptr(util::time_sync* time_s);
+
+
     // add world gnss measurement with variance factor to queue
-    void queue_gnss_measurement(Eigen::Vector3d* t_wgnss, float* var_gps);
+    void enqueue_gnss_measurement(Eigen::Vector3d* t_wgnss, float* var_gps, long* timestamp);
 
-	// number of gnss measurement in queue
-	int get_num_gnss_measurement();
+	// dequeue gnss measurement with default dequeue of oldest gnss
+	std::pair<Eigen::Vector3d*, float*> dequeue_gnss_measurement();
+     
+	// dequeue gnss measurement with time synchronization to get closest value; with timestamp value
+	// as delta ms. Set real_time to true when doing slam with live camera
+    std::pair<Eigen::Vector3d*, float*> dequeue_gnss_measurement(bool time_sync, bool real_time=false);
 
-    // gnss measurement queue
-    std::list<std::pair<Eigen::Vector3d*, float*>> gnss_queue_;
+    util::time_sync* time_sync_;
+
+    // number of gnss measurement in queue
+    int get_num_gnss_measurement();
 
 private:
     //-----------------------------------------
@@ -237,11 +248,10 @@ private:
     //! current keyframe which is used in the current mapping
     data::keyframe* cur_keyfrm_ = nullptr;
 
-	//--------------------------------------------------------------
+    //--------------------------------------------------------------
     // NFYNT additions
 
-
-
+	openvslam::gnss_container* gnss_data;
 };
 
 } // namespace openvslam

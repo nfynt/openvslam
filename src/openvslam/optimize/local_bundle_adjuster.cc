@@ -139,17 +139,6 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
     //NFYNT additions
 
     //3.1 add GNSS measurement vertices		== create new wrapper for GNSS vertices
-    // for (auto& kfr : all_keyfrms) {
-    //     auto fr = kfr.second;
-    //     if (fr->has_gnss_measurement()) {
-    //
-    //		auto gnss_vrt = new internal::gnss_vertex();
-    //         gnss_vrt->setEstimate(fr->t_gnss);
-    //         gnss_vrt->setFixed(false);
-    //         gnss_vrt->setMarginalized(true);
-    //         optimizer.addVertex(gnss_vrt);
-    //     }
-    // }
 
     auto gnss_vrt = new internal::gnss_vertex();
 
@@ -158,9 +147,13 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
         Eigen::Vector3d est = curr_keyfrm->get_cam_pose().block<3, 1>(0, 3);
         gnss_vrt->setId(gnss_id_offset + curr_keyfrm->id_);
         gnss_vrt->setEstimate(est);
+        //gnss_vrt->sigma_sq = curr_keyfrm->gnss_variance;
         gnss_vrt->setFixed(false);
         gnss_vrt->setMarginalized(true);
         optimizer.addVertex(gnss_vrt);
+    }
+    else {
+        delete gnss_vrt;
     }
 
     // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する - Connect keyframe and landmark vertex with reprojection edge
@@ -218,12 +211,13 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
     if (curr_keyfrm->has_gnss_measurement()) {
         g2o::OptimizableGraph::Edge* edge_;
         auto gnss_edge = new internal::gnss_measurement_edge();
-        Vec3_t obs= curr_keyfrm->t_gnss;
+        Vec3_t obs = curr_keyfrm->t_gnss;
         gnss_edge->setVertex(0, gnss_vrt);
-        gnss_edge->setMeasurement(obs);
-        gnss_edge->setInformation(Mat33_t::Identity());
+        gnss_edge->setMeasurement(obs);                                                  //zk
+                                                                                         //? set gnss variance
+        gnss_edge->setInformation(Mat33_t::Identity() * 1 / curr_keyfrm->gnss_variance); //wk
         edge_ = gnss_edge;
-		//kernel function
+        //kernel function
         edge_->setRobustKernel(new g2o::RobustKernelHuber());
         optimizer.addEdge(edge_);
     }
@@ -235,8 +229,8 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
             return;
         }
     }
-	
-    optimizer.setVerbose(true);
+
+    //optimizer.setVerbose(true);
     optimizer.initializeOptimization();
     optimizer.optimize(num_first_iter_);
 
