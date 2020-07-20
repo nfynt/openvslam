@@ -152,13 +152,11 @@ public:
     bool is_tracking() const;
 
     //set reference for time_sync. Call it after the system contructor
-    inline void set_time_sync_ptr(util::time_sync* time_s) {
-        mapper_->set_time_sync_ptr(time_s);
-    }
+    void set_time_sync_ptr(util::time_sync* time_s);
 
     //Add gps translation to queue (transformed from utm to SLAM world)
     //and variance of measurement
-    void feed_GNSS_measurement(Eigen::Vector3d t_wgps, float var_gps, long timestamp);
+    void feed_GNSS_measurement(Eigen::Vector3d t_wgps, double var_gps, long timestamp);
 
 private:
     //! Check reset request of the system

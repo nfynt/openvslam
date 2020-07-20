@@ -12,11 +12,7 @@ namespace util {
 
 class time_sync {
 public:
-    time_sync() {
-        this->video_timestamp = this->gps_timestamp = milliseconds(0);
-        auto now_ms = time_point_cast<chrono::milliseconds>(chrono::system_clock::now());
-        this->process_start_timestamp = now_ms.time_since_epoch().count();
-    }
+    time_sync();
 
     // video timestamp since start - of the play of video (in ms)
     milliseconds video_timestamp;
@@ -31,7 +27,7 @@ public:
 
 	// get milliseconds (dt) past since the start of this process - the dt is not in sync with system_time
 	// when using video for slam
-    inline long long get_dt_start();
+    long long get_dt_start();
 
 
 private:

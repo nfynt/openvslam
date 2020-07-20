@@ -22,6 +22,8 @@
 #include <g2o/solvers/csparse/linear_solver_csparse.h>
 #include <g2o/core/optimization_algorithm_levenberg.h>
 
+#include <iostream>
+
 namespace openvslam {
 namespace optimize {
 
@@ -140,21 +142,21 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
 
     //3.1 add GNSS measurement vertices		== create new wrapper for GNSS vertices
 
-    auto gnss_vrt = new internal::gnss_vertex();
+    //auto gnss_vrt = new internal::gnss_vertex();
 
-    if (curr_keyfrm->has_gnss_measurement()) {
-        unsigned int gnss_id_offset = 100000;
-        Eigen::Vector3d est = curr_keyfrm->get_cam_pose().block<3, 1>(0, 3);
-        gnss_vrt->setId(gnss_id_offset + curr_keyfrm->id_);
-        gnss_vrt->setEstimate(est);
-        //gnss_vrt->sigma_sq = curr_keyfrm->gnss_variance;
-        gnss_vrt->setFixed(false);
-        gnss_vrt->setMarginalized(true);
-        optimizer.addVertex(gnss_vrt);
-    }
-    else {
-        delete gnss_vrt;
-    }
+    //if (curr_keyfrm->has_gnss_measurement()) {
+    //    unsigned int gnss_id_offset = 100000;
+    //    Eigen::Vector3d est = curr_keyfrm->get_cam_pose().block<3, 1>(0, 3);
+    //    gnss_vrt->setId(gnss_id_offset + curr_keyfrm->id_);
+    //    gnss_vrt->setEstimate(est);
+    //    //gnss_vrt->sigma_sq = curr_keyfrm->gnss_variance;
+    //    gnss_vrt->setFixed(false);
+    //    gnss_vrt->setMarginalized(true);
+    //    optimizer.addVertex(gnss_vrt);
+    //}
+    //else {
+    //    delete gnss_vrt;
+    //}
 
     // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する - Connect keyframe and landmark vertex with reprojection edge
 
@@ -204,22 +206,37 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
                                                         inv_sigma_sq, sqrt_chi_sq);
             reproj_edge_wraps.push_back(reproj_edge_wrap);
             optimizer.addEdge(reproj_edge_wrap.edge_);
+
+			//Add dangling GNSS measurement edge for existing keyframe
+			if (keyfrm->has_gnss_measurement())
+			{
+                //g2o::OptimizableGraph::Edge* edge_;
+                auto gnss_edge = new internal::gnss_measurement_edge();
+                Vec3_t obs = keyfrm->t_gnss;
+                //gnss_edge->setVertex(0, gnss_vrt);
+                gnss_edge->setMeasurement(obs);                 //zk
+                gnss_edge->setInformation(Mat33_t::Identity() * 1 / curr_keyfrm->gnss_variance); //wk
+                //edge_ = gnss_edge;
+                //kernel function
+                gnss_edge->setRobustKernel(new g2o::RobustKernelHuber());
+                optimizer.addEdge(gnss_edge);
+			}
         }
     }
 
     //4.1 GNSS edge from gnss_vertex to current keyframe
     if (curr_keyfrm->has_gnss_measurement()) {
-        g2o::OptimizableGraph::Edge* edge_;
-        auto gnss_edge = new internal::gnss_measurement_edge();
+    //    g2o::OptimizableGraph::Edge* edge_;
+    //    auto gnss_edge = new internal::gnss_measurement_edge();
         Vec3_t obs = curr_keyfrm->t_gnss;
-        gnss_edge->setVertex(0, gnss_vrt);
-        gnss_edge->setMeasurement(obs);                                                  //zk
-                                                                                         //? set gnss variance
-        gnss_edge->setInformation(Mat33_t::Identity() * 1 / curr_keyfrm->gnss_variance); //wk
-        edge_ = gnss_edge;
-        //kernel function
-        edge_->setRobustKernel(new g2o::RobustKernelHuber());
-        optimizer.addEdge(edge_);
+        std::cout << curr_keyfrm->id_ << "\t t_gnss=" << obs.transpose() << std::endl;
+    //    //gnss_edge->setVertex(0, gnss_vrt);
+    //    gnss_edge->setMeasurement(obs);                                                  //zk
+    //    gnss_edge->setInformation(Mat33_t::Identity());// * 1 / curr_keyfrm->gnss_variance); //wk
+    //    edge_ = gnss_edge;
+    //    //kernel function
+    //    edge_->setRobustKernel(new g2o::RobustKernelHuber());
+    //    optimizer.addEdge(edge_);
     }
 
     // 5. 1回目の最適化を実行 - Run the first optimization

@@ -292,12 +292,12 @@ public:
 	Eigen::Vector3d t_gnss;
 
 	// expected variance of gnss
-    float gnss_variance;
+    double gnss_variance;
 
     // gnss measurement available for this keyframe
     bool has_gnss_measurement();
 
-    void add_gnss_measurement(Eigen::Vector3d* t_gnss, float* var_gnss);
+    void add_gnss_measurement(Eigen::Vector3d* t_gnss, double* var_gnss);
 
 private:
     //-----------------------------------------

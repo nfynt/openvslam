@@ -354,7 +354,7 @@ bool system::is_tracking() const {
     return false;
 }
 
-void system::feed_GNSS_measurement(Eigen::Vector3d t_wgnss, float var_gps, long timestamp) {
+void system::feed_GNSS_measurement(Eigen::Vector3d t_wgnss, double var_gps, long timestamp) {
 
 	//abort if not tracking
     if (tracker_->tracking_state_ != tracker_state_t::Tracking) {
@@ -366,6 +366,9 @@ void system::feed_GNSS_measurement(Eigen::Vector3d t_wgnss, float var_gps, long 
 	//tracker_->curr_frm_.add_gnss_measurement(t_wgnss);
 }
 
+void system::set_time_sync_ptr(util::time_sync* time_s) {
+    mapper_->set_time_sync_ptr(time_s);
+}
 
 
 } // namespace openvslam

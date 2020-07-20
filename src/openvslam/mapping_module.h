@@ -109,14 +109,14 @@ public:
 
 
     // add world gnss measurement with variance factor to queue
-    void enqueue_gnss_measurement(Eigen::Vector3d* t_wgnss, float* var_gps, long* timestamp);
+    void enqueue_gnss_measurement(Eigen::Vector3d* t_wgnss, double* var_gps, long* timestamp);
 
 	// dequeue gnss measurement with default dequeue of oldest gnss
-	std::pair<Eigen::Vector3d*, float*> dequeue_gnss_measurement();
+    std::pair<Eigen::Vector3d*, double*> dequeue_gnss_measurement();
      
 	// dequeue gnss measurement with time synchronization to get closest value; with timestamp value
 	// as delta ms. Set real_time to true when doing slam with live camera
-    std::pair<Eigen::Vector3d*, float*> dequeue_gnss_measurement(bool time_sync, bool real_time=false);
+    std::pair<Eigen::Vector3d*, double*> dequeue_gnss_measurement(bool time_sync, bool real_time = false);
 
     util::time_sync* time_sync_;
 

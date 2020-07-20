@@ -16,18 +16,18 @@ public:
     ~gnss_container() {}
 
     // gnss measurement queue
-    std::list<std::pair<Eigen::Vector3d*, float*>> gnss_queue_;
+    std::list<std::pair<Eigen::Vector3d*, double*>> gnss_queue_;
     std::list<long*> gnss_timestamps_;
 
     // add world gnss measurement with variance factor to queue
-    void enqueue_gnss_measurement(Eigen::Vector3d* t_wgnss, float* var_gps, long* timestamp) {
+    void enqueue_gnss_measurement(Eigen::Vector3d* t_wgnss, double* var_gps, long* timestamp) {
         gnss_queue_.push_back(std::make_pair(t_wgnss, var_gps));
         gnss_timestamps_.push_back(timestamp);
     }
 
-    std::pair<Eigen::Vector3d*, float*> dequeue_gnss_measurement() {
+    std::pair<Eigen::Vector3d*, double*> dequeue_gnss_measurement() {
 
-        std::pair<Eigen::Vector3d*, float*> gnss = gnss_queue_.front();
+        std::pair<Eigen::Vector3d*, double*> gnss = gnss_queue_.front();
         curr_timestamp = *gnss_timestamps_.front();
         gnss_queue_.pop_front();
         gnss_timestamps_.pop_front();
@@ -36,8 +36,8 @@ public:
     }
 
     // get gnss measurement close to provided timestamp
-    std::pair<Eigen::Vector3d*, float*> dequeue_gnss_measurement(long timestamp) {
-        std::pair<Eigen::Vector3d*, float*> gnss = gnss_queue_.front();
+    std::pair<Eigen::Vector3d*, double*> dequeue_gnss_measurement(long timestamp) {
+        std::pair<Eigen::Vector3d*, double*> gnss = gnss_queue_.front();
         curr_timestamp = *gnss_timestamps_.front();
         gnss_queue_.pop_front();
         gnss_timestamps_.pop_front();
@@ -54,9 +54,9 @@ public:
 
 	// get the latest gnss measurement discarding all the previous measurement
 	// useful when system_time is not in sync during video slam
-	std::pair<Eigen::Vector3d*, float*> dequeue_latest_gnss() {
+    std::pair<Eigen::Vector3d*, double*> dequeue_latest_gnss() {
         
-		std::pair<Eigen::Vector3d*, float*> gnss = gnss_queue_.back();
+		std::pair<Eigen::Vector3d*, double*> gnss = gnss_queue_.back();
         curr_timestamp = *gnss_timestamps_.back();
         gnss_queue_.clear();
         gnss_timestamps_.clear();

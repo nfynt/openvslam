@@ -41,6 +41,9 @@ keyframe::keyframe(const frame& frm, map_database* map_db, bow_database* bow_db)
       map_db_(map_db), bow_db_(bow_db), bow_vocab_(frm.bow_vocab_) {
     // set pose parameters (cam_pose_wc_, cam_center_) using frm.cam_pose_cw_
     set_cam_pose(frm.cam_pose_cw_);
+
+	//NFYNT additions
+    this->has_gnss = false;
 }
 
 keyframe::keyframe(const unsigned int id, const unsigned int src_frm_id, const double timestamp,
@@ -83,6 +86,9 @@ keyframe::keyframe(const unsigned int id, const unsigned int src_frm_id, const d
     // TODO: should set spanning_parent_ using set_spanning_parent()
     // TODO: should set spanning_children_ using add_spanning_child()
     // TODO: should set loop_edges_ using add_loop_edge()
+
+	//NFYNT additions
+	this->has_gnss = false;
 }
 
 nlohmann::json keyframe::to_json() const {
@@ -435,15 +441,14 @@ bool keyframe::will_be_erased() {
 //-------------------------------------------------------------------
 // NFYNT additions
 
-void keyframe::add_gnss_measurement(Eigen::Vector3d* t_g, float* var_gnss)
-{
-    t_gnss = *t_g;
-    gnss_variance = *var_gnss;
-    has_gnss = true;
+void keyframe::add_gnss_measurement(Eigen::Vector3d* t_g, double* var_gnss) {
+    this->t_gnss = *t_g;
+    this->gnss_variance = *var_gnss;
+    this->has_gnss = true;
 }
 
 bool keyframe::has_gnss_measurement() {
-    return has_gnss;
+    return this->has_gnss;
 }
 
 
