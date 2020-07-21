@@ -2,6 +2,8 @@
 
 #include "gps_parser.h"
 
+#include "SFML/Network.hpp"
+
 // Continuously parses the gps text and updated with respect to timestamp. Run in separate thead!
 void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
     this->lat = this->lon = this->alt = 0.0;
@@ -83,6 +85,87 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
         this->is_valid = false;
         spdlog::critical("Failed to read gps file @ " + file_path);
     }
+}
+
+void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
+    
+	this->lat = this->lon = this->alt = 0.0;
+    this->terminate = false;
+
+	string msg;
+    string txt[4];
+    sf::TcpSocket socket;
+    sf::Socket::Status status;
+
+    //initialize connection with GPS server
+    status = socket.connect(this->ip_addr, this->port_num);
+    if (status != sf::Socket::Done) {
+        spdlog::critical("Failed to initialize TCP connection. server: {}:{}", this->ip_addr,this->port_num);
+        return;
+    }
+
+    char data[300];
+    std::size_t received;
+    long long last_stamp = 0;
+
+	// TCP socket:
+    while (true) {
+        auto tp_1 = std::chrono::steady_clock::now();
+        if (this->terminate) {
+            socket.disconnect();
+            break;
+		}
+
+        if (socket.receive(data, 300, received) != sf::Socket::Done) {
+            this->terminate = true;
+            spdlog::critical("TCP: error receiving data. socket.error_code: {}",socket.Error);
+            //?break;
+        }
+        else {
+            msg = string(data);
+            //spdlog::info("TCP: " + msg);
+            msg = msg.substr(msg.find_first_of('(') + 1, msg.find_first_of(')') - msg.find_first_of('(') - 1);
+            
+
+            if (this->terminate)
+                break;
+
+            //spdlog::info("parser: " + msg);
+            if (msg.find("#") != string::npos)
+                continue;
+
+            std::stringstream msg_stream(msg);
+            this->is_valid = false;
+
+            if (getline(msg_stream, txt[0], ','))
+                if (getline(msg_stream, txt[1], ','))
+                    if (getline(msg_stream, txt[2], ','))
+                        if (getline(msg_stream, txt[3], ','))
+                            this->is_valid = true;
+
+            if (this->is_valid) {
+                this->timestamp = stoll(txt[0]);
+                this->lat = stod(txt[1]);
+                this->lon = stod(txt[2]);
+                this->alt = stod(txt[3]);
+            }
+            else {
+                spdlog::warn(msg);
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                continue;
+            }
+
+            if (last_stamp == 0) {
+                last_stamp = this->timestamp;
+            }
+
+            const auto tp_2 = std::chrono::steady_clock::now();
+            long long track_time = duration_cast<milliseconds>(tp_2 - tp_1).count();
+            time_s->gps_timestamp += chrono::milliseconds(this->timestamp - last_stamp);
+            last_stamp = this->timestamp;
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }//end of while loop
 }
 
 void gps_parser::terminate_process() {

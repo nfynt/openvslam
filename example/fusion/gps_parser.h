@@ -25,8 +25,16 @@ class gps_parser {
 public:
     gps_parser() {}
     gps_parser(std::string path)
-        : file_path(path), is_valid(false), terminate(false) {}
+        : file_path(path), is_valid(false), terminate(false), parsing_locally(true) {}
+    gps_parser(std::string ip, int port)
+        : ip_addr(ip), port_num(port), is_valid(false), terminate(false), parsing_locally(false) {}
+
+	// open local file and read gps measure and update time_sync
     void start_reading(openvslam::util::time_sync* time_s);
+	// connect to socket connection and parse the received measurement and update time_sync
+    void connect_and_read(openvslam::util::time_sync* time_s);
+
+    //terminate current reading process and exit
     void terminate_process();
 
     //update and convert new wgs84 to utm
@@ -44,9 +52,16 @@ public:
     bool is_valid;
 
 private:
+    // local file path
     std::string file_path;
+
+    // socket connection
+    std::string ip_addr;
+    int port_num;
+
     long long timestamp;
     bool terminate;
+    bool parsing_locally;
 };
 
 // geo location in WGS-84 format of lat, lon, alt
@@ -111,15 +126,14 @@ struct geo_utm {
     bool southhemi;
     unsigned short ref_ellipsoid_id;
 
-
     geo_utm() {
         this->altitude = this->x = this->y = 0.0;
         this->zone = 0;
         this->southhemi = false;
-        this->ref_ellipsoid_id = 23;	//WGS-84
+        this->ref_ellipsoid_id = 23; //WGS-84
     }
 
-    geo_utm(double x, double y, short zone, bool south_hemi = false, double altitude = 0.0, unsigned short ellip_id=23) {
+    geo_utm(double x, double y, short zone, bool south_hemi = false, double altitude = 0.0, unsigned short ellip_id = 23) {
         this->x = x;
         this->y = y;
         this->zone = zone;
@@ -129,7 +143,7 @@ struct geo_utm {
     }
 
     geo_utm(geo_location& gps) {
-        this->zone = LatLonToUTMXY(23,gps.latitude, gps.longitude, this->x, this->y);
+        this->zone = LatLonToUTMXY(23, gps.latitude, gps.longitude, this->x, this->y);
         this->altitude = gps.altitude;
         this->ref_ellipsoid_id = 23;
         (gps.latitude >= 0) ? this->southhemi = false : this->southhemi = true;
@@ -144,8 +158,8 @@ struct geo_utm {
     }
 
     geo_location convert_utm_to_gps(double alt = 0.0) {
-        double lat=0.0, lon=0.0;
-        UTMXYToLatLon(this->ref_ellipsoid_id,this->x, this->y, this->zone, this->southhemi, lat, lon);
+        double lat = 0.0, lon = 0.0;
+        UTMXYToLatLon(this->ref_ellipsoid_id, this->x, this->y, this->zone, this->southhemi, lat, lon);
         return geo_location(lat, lon, alt);
     }
 

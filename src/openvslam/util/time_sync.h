@@ -26,7 +26,6 @@ public:
     milliseconds is_video_caught_up_gps();
 
 	// get milliseconds (dt) past since the start of this process - the dt is not in sync with system_time
-	// when using video for slam
     long long get_dt_start();
 
 

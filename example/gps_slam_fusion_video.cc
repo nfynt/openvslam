@@ -220,9 +220,8 @@ void run_gps(string gps_path) {
 //updates the curr_geo to be used in SLAM thread
 void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
     //KF(camera_pose + curr_geo) -> corrected gps location
-    gps_out = std::ofstream(crr_gps_path);
+    gps_out = std::ofstream(crr_gps_path,std::ios::out);
     gps_out << "# <lat,lon,alt,roll,pitch,yaw>\n";
-    gps_out.close();
 
     gps_initialized = false;
     const long long iter_time = 1000 / freq;
@@ -254,7 +253,7 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
     //estimate transformation between SLAM world and GPS based on distance
     while (!gps_initialized && slam_gps_running) {
         gps->update_gps_value(curr_geo);
-        // R_wgnss for bidb_sequence
+        // R_wgnss for bidb_sequence, ang=0.972153
         //R_wgnss << 0.597568, 0, -0.801818,
         //    0, 1, 0,
         //    0.801818, 0, 0.597568;
@@ -341,16 +340,17 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
 
             SLAM->feed_GNSS_measurement(t_gnss, var_gnss, gps->get_last_timestamp());
 
-            Eigen::Vector3d w_pos = camera_pose.block(0, 3, 3, 1);
-            spdlog::info("fusion:\ncurr_utm: {}\nt_gps: {}\nt_wslam: {}\ngps time: {}\tvid: {}",
-                         curr_geo->value(), t_gnss.transpose(), w_pos.transpose(), time_s->gps_timestamp.count(), time_s->video_timestamp.count());
-
             // camera position in SLAM world cs
             Eigen::Vector3d pos = camera_pose.block(0, 3, 3, 1);
-            Eigen::Quaterniond rot_q(camera_pose.block<3, 3>(0, 0));
-            auto euler = rot_q.toRotationMatrix().eulerAngles(0, 1, 2);
 
-            //Convert to GPS cs
+            spdlog::info("fusion:\ncurr_utm: {}\nt_gps: {}\nt_wslam: {}\ngps time: {}\tvid: {}",
+                         curr_geo->value(), t_gnss.transpose(), pos.transpose(), time_s->gps_timestamp.count(), time_s->video_timestamp.count());
+
+            Eigen::Quaterniond rot_q(camera_pose.block<3, 3>(0, 0));
+            auto rot_qn = R_wgnss.transpose() * rot_q.toRotationMatrix();
+            auto euler = rot_qn.eulerAngles(0, 1, 2);
+
+            //Convert to GPS coordinate system
             pos = R_wgnss.transpose() * pos; //transpose == inverse
             //add the start GPS position for offset
             pos += Eigen::Vector3d(start_geo->x, 0, start_geo->y);
@@ -361,9 +361,8 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
             //convert to gps_location format!!
 
             geo_utm loc(pos.x(), pos.z(), curr_geo->zone);
-            gps_out = std::ofstream(crr_gps_path, std::ios::out | std::ios::app);
             gps_out << loc.convert_utm_to_gps(curr_geo->altitude).value() << "," << euler(0) << "," << euler(1) << "," << euler(2) << "\n";
-            gps_out.close();
+            
             spdlog::info("corrected GPS\npos: {}\nheading: {}",
                          loc.convert_utm_to_gps().value(), euler.transpose());
 

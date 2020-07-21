@@ -155,7 +155,7 @@ public:
     void set_time_sync_ptr(util::time_sync* time_s);
 
     //Add gps translation to queue (transformed from utm to SLAM world)
-    //and variance of measurement
+    //and variance of measurement; the timestamp in milliseconds since the start of this system
     void feed_GNSS_measurement(Eigen::Vector3d t_wgps, double var_gps, long timestamp);
 
 private:
