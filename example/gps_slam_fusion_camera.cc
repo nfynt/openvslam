@@ -381,7 +381,7 @@ int main(int argc, char* argv[]) {
     auto st_lon = op.add<popl::Value<double>>("m", "lon", "Start longitude", 0.0);
     auto st_alt = op.add<popl::Value<double>>("a", "alt", "Start altitude", 0.0);
     auto gnss_var = op.add<popl::Value<double>>("z", "var", "GNSS variance", 10.0);
-    auto map_db_path = op.add<popl::Value<std::string>>("p", "map-db", "store map database at this path after SLAM", "");
+    auto map_db_path = op.add<popl::Value<std::string>>("d", "map-db", "store map database at this path after SLAM", "");
     auto mapping = op.add<popl::Value<bool>>("q", "map-n", "enable mapping of existing map-db", false);
     auto show_3d = op.add<popl::Value<int>>("s", "show", "show pangolin 3d view", 0);
     auto debug_mode = op.add<popl::Switch>("", "debug", "debug mode");
