@@ -16,6 +16,10 @@
 #include <g2o/solvers/csparse/linear_solver_csparse.h>
 #include <g2o/core/optimization_algorithm_levenberg.h>
 
+#include "openvslam/optimize/internal/gnss_measurement_edge.h"
+#include <spdlog/spdlog.h>
+#include <iostream>
+
 namespace openvslam {
 namespace optimize {
 
@@ -24,7 +28,7 @@ global_bundle_adjuster::global_bundle_adjuster(data::map_database* map_db, const
 
 void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_global_BA, bool* const force_stop_flag) const {
     // 1. データを集める - Collect data
-
+	std::cout << "global_bundle_adjuting\n";
     const auto keyfrms = map_db_->get_all_keyframes();
     const auto lms = map_db_->get_all_landmarks();
     std::vector<bool> is_optimized_lm(lms.size(), true);
@@ -119,6 +123,20 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
             reproj_edge_wraps.push_back(reproj_edge_wrap);
             optimizer.addEdge(reproj_edge_wrap.edge_);
             ++num_edges;
+
+            //Add dangling GNSS measurement edge for keyframe
+            if (keyfrm->has_gnss_measurement()) {
+                //g2o::OptimizableGraph::Edge* edge_;
+                auto gnss_edge = new internal::gnss_measurement_edge();
+                Vec3_t obs = keyfrm->t_gnss;
+                //gnss_edge->setVertex(0, gnss_vrt);
+                gnss_edge->setMeasurement(obs);                                             //zk
+                gnss_edge->setInformation(Mat33_t::Identity() * 1 / keyfrm->gnss_variance); //wk
+                //edge_ = gnss_edge;
+                //kernel function
+                gnss_edge->setRobustKernel(new g2o::RobustKernelHuber());
+                optimizer.addEdge(gnss_edge);
+            }
         }
 
         if (num_edges == 0) {
@@ -126,6 +144,7 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
             is_optimized_lm.at(i) = false;
         }
     }
+    spdlog::info("global BA edge count: {}", reproj_edge_wraps.size());
 
     // 5. 最適化を実行 - Perform optimization
 

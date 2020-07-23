@@ -33,12 +33,13 @@ local_bundle_adjuster::local_bundle_adjuster(const unsigned int num_first_iter,
 
 void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, bool* const force_stop_flag) const {
     // 1. local/fixed keyframes, local landmarksを集計する (sum up)
-
+    
     // correct local keyframes of the current keyframe
     std::unordered_map<unsigned int, data::keyframe*> local_keyfrms;
 
     local_keyfrms[curr_keyfrm->id_] = curr_keyfrm;
     const auto curr_covisibilities = curr_keyfrm->graph_node_->get_covisibilities();
+    int extra_frm = 0;
     for (auto local_keyfrm : curr_covisibilities) {
         if (!local_keyfrm) {
             continue;
@@ -48,7 +49,18 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
         }
 
         local_keyfrms[local_keyfrm->id_] = local_keyfrm;
+
+		//NFYNT additions
+		//broaden the local keyframe search - big LBA
+        const auto new_covisib = local_keyfrm->graph_node_->get_covisibilities();
+        for (auto lk : new_covisib) {
+            if (!lk || lk->will_be_erased() || local_keyfrms.find(lk->id_)!=local_keyfrms.end())
+                continue;
+            local_keyfrms[lk->id_] = lk;
+            extra_frm++;
+		}
     }
+    //std::cout << "LBA local frame cnt: " << local_keyfrms.size() << "\textra: " << extra_frm << "\n";
 
     // correct local landmarks seen in local keyframes
     std::unordered_map<unsigned int, data::landmark*> local_lms;
@@ -175,7 +187,7 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
     // 自由度n=3
     constexpr float chi_sq_3D = 7.81473;
     const float sqrt_chi_sq_3D = std::sqrt(chi_sq_3D);
-
+    extra_frm = 0;
     for (auto& id_local_lm_pair : local_lms) {
         auto local_lm = id_local_lm_pair.second;
 
@@ -206,37 +218,33 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
                                                         inv_sigma_sq, sqrt_chi_sq);
             reproj_edge_wraps.push_back(reproj_edge_wrap);
             optimizer.addEdge(reproj_edge_wrap.edge_);
-
-			//Add dangling GNSS measurement edge for existing keyframe
-			if (keyfrm->has_gnss_measurement())
-			{
-                //g2o::OptimizableGraph::Edge* edge_;
-                auto gnss_edge = new internal::gnss_measurement_edge();
-                Vec3_t obs = keyfrm->t_gnss;
-                //gnss_edge->setVertex(0, gnss_vrt);
-                gnss_edge->setMeasurement(obs);                 //zk
-                gnss_edge->setInformation(Mat33_t::Identity() * 1 / curr_keyfrm->gnss_variance); //wk
-                //edge_ = gnss_edge;
-                //kernel function
-                gnss_edge->setRobustKernel(new g2o::RobustKernelHuber());
-                optimizer.addEdge(gnss_edge);
-			}
         }
     }
 
-    //4.1 GNSS edge from gnss_vertex to current keyframe
+    //4.1 GNSS unary edge for current keyframe
+    //Add dangling GNSS measurement edge for existing keyframe
+	for (auto kf : local_keyfrms)
+	{
+		if (kf.second->has_gnss_measurement())
+		{
+            const auto vtx = keyfrm_vtx_container.get_vertex(kf.first);
+            const auto gnss_edge = new internal::gnss_measurement_edge();
+            Vec3_t obs = kf.second->t_gnss;
+            gnss_edge->setVertex(0, vtx);
+            gnss_edge->setMeasurement(obs);                                                  //zk
+            gnss_edge->setInformation(Mat33_t::Identity() * 1 / kf.second->gnss_variance); //wk
+            
+			//kernel function
+            gnss_edge->setRobustKernel(new g2o::RobustKernelHuber());
+            optimizer.addEdge(gnss_edge);
+            extra_frm++;
+		}
+	}
+
     if (curr_keyfrm->has_gnss_measurement()) {
-    //    g2o::OptimizableGraph::Edge* edge_;
-    //    auto gnss_edge = new internal::gnss_measurement_edge();
-        Vec3_t obs = curr_keyfrm->t_gnss;
-        std::cout << curr_keyfrm->id_ << "\t t_gnss=" << obs.transpose() << std::endl;
-    //    //gnss_edge->setVertex(0, gnss_vrt);
-    //    gnss_edge->setMeasurement(obs);                                                  //zk
-    //    gnss_edge->setInformation(Mat33_t::Identity());// * 1 / curr_keyfrm->gnss_variance); //wk
-    //    edge_ = gnss_edge;
-    //    //kernel function
-    //    edge_->setRobustKernel(new g2o::RobustKernelHuber());
-    //    optimizer.addEdge(edge_);
+    Vec3_t obs = curr_keyfrm->t_gnss;
+    std::cout << curr_keyfrm->id_ << "\t t_gnss=" << obs.transpose() << std::endl;
+    //std::cout << "LBA gnss edges: " << extra_frm << "\n";
     }
 
     // 5. 1回目の最適化を実行 - Run the first optimization

@@ -188,6 +188,10 @@ struct geo_utm {
         return std::sqrt(std::pow(this->x - target->x, 2) + std::pow(this->y - target->y, 2));
     }
 
+	inline Eigen::Vector3d distance_vector(Eigen::Vector3d& point) {
+        return Eigen::Vector3d(point.x() - this->x,point.y() - this->altitude,point.z()-this->y);
+	}
+
     //returns squared euclidean distance (m)
     inline double sq_distance_from(geo_utm* target) {
         return std::pow(this->x - target->x, 2) + std::pow(this->y - target->y, 2);

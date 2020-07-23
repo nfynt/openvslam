@@ -297,6 +297,7 @@ public:
     // gnss measurement available for this keyframe
     bool has_gnss_measurement();
 
+	//add or update gnss measurement of this keyframe 
     void add_gnss_measurement(Eigen::Vector3d* t_gnss, double* var_gnss);
 
 private:

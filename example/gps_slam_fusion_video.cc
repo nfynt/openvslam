@@ -96,6 +96,7 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
 
     // startup the SLAM process with mapping settings
     if (map_db_path.empty() || !exists(map_db_path)) {
+        spdlog::info("map_db not found or doesn't exist... will create new");
         SLAM->startup();
     }
     else {
@@ -220,7 +221,7 @@ void run_gps(string gps_path) {
 //updates the curr_geo to be used in SLAM thread
 void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
     //KF(camera_pose + curr_geo) -> corrected gps location
-    gps_out = std::ofstream(crr_gps_path,std::ios::out);
+    gps_out = std::ofstream(crr_gps_path, std::ios::out);
     gps_out << "# <lat,lon,alt,roll,pitch,yaw>\n";
 
     gps_initialized = false;
@@ -244,7 +245,7 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
         spdlog::info("curr gps utm - {}", curr_geo->value());
     }
     else {
-        spdlog::critical("fusion: invalid gps");
+        spdlog::critical("fusion: invalid gps parser");
         slam_gps_running = false;
     }
 
@@ -253,13 +254,13 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
     //estimate transformation between SLAM world and GPS based on distance
     while (!gps_initialized && slam_gps_running) {
         gps->update_gps_value(curr_geo);
-        // R_wgnss for bidb_sequence, ang=0.972153
-        //R_wgnss << 0.597568, 0, -0.801818,
-        //    0, 1, 0,
-        //    0.801818, 0, 0.597568;
+        // R_wgnss for bidb_sequence, ang=0.959669
+       /* R_wgnss << 0.573791, 0, -0.819002,
+            -0, 1, 0,
+            0.819002, 0, 0.573791;
 
-        //gps_initialized = true;
-        //continue;
+        gps_initialized = true;
+        continue;*/
 
         if (curr_geo->sq_distance_from(start_geo) > 64.0) {
             //the sensor has roughly moved 3 meters from start - good enough to initialize?
@@ -334,7 +335,6 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
         gps->update_gps_value(curr_geo);
         //!curr_geo->equals(last_geo) &&
         if (slam_tracking) {
-            spdlog::info("inp gps: {}", curr_geo->convert_utm_to_gps(curr_geo->altitude).value());
             // utm coordinates transformed to slam world
             Eigen::Vector3d t_gnss = R_wgnss * (curr_geo->get_vector() - start_geo->get_vector());
 
@@ -343,8 +343,8 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
             // camera position in SLAM world cs
             Eigen::Vector3d pos = camera_pose.block(0, 3, 3, 1);
 
-            spdlog::info("fusion:\ncurr_utm: {}\nt_gps: {}\nt_wslam: {}\ngps time: {}\tvid: {}",
-                         curr_geo->value(), t_gnss.transpose(), pos.transpose(), time_s->gps_timestamp.count(), time_s->video_timestamp.count());
+            spdlog::info("fusion:\nt_gps: {}\nt_wslam: {}\ngps time: {}\tvid: {}",
+                         t_gnss.transpose(), pos.transpose(), time_s->gps_timestamp.count(), time_s->video_timestamp.count());
 
             Eigen::Quaterniond rot_q(camera_pose.block<3, 3>(0, 0));
             auto rot_qn = R_wgnss.transpose() * rot_q.toRotationMatrix();
@@ -355,16 +355,17 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
             //add the start GPS position for offset
             pos += Eigen::Vector3d(start_geo->x, 0, start_geo->y);
 
-            spdlog::info("UTM sq distance: {}\ncurr_gnss: {}\ncorrected gnss: {}",
-                         curr_geo->sq_distance_from(start_geo), curr_geo->value(), pos.transpose());
+            spdlog::info("UTM sq distance: {}\ncurr_gnss: {}\ncorrected gnss: {}\ndist gap: {}",
+                         curr_geo->sq_distance_from(start_geo), curr_geo->value(), pos.transpose(),
+				curr_geo->distance_vector(pos).transpose());
 
             //convert to gps_location format!!
 
             geo_utm loc(pos.x(), pos.z(), curr_geo->zone);
             gps_out << loc.convert_utm_to_gps(curr_geo->altitude).value() << "," << euler(0) << "," << euler(1) << "," << euler(2) << "\n";
-            
-            spdlog::info("corrected GPS\npos: {}\nheading: {}",
-                         loc.convert_utm_to_gps().value(), euler.transpose());
+
+            //spdlog::info("GPS\ninp gps: {}\nout pos: {}\nheading: {}", curr_geo->convert_utm_to_gps(curr_geo->altitude).value(),
+            //             loc.convert_utm_to_gps().value(), euler.transpose());
 
             last_geo->copy_from(curr_geo);
         }
@@ -397,7 +398,7 @@ int main(int argc, char* argv[]) {
     auto st_lat = op.add<popl::Value<double>>("l", "lat", "Start latitude", 0.0);
     auto st_lon = op.add<popl::Value<double>>("m", "lon", "Start longitude", 0.0);
     auto st_alt = op.add<popl::Value<double>>("a", "alt", "Start altitude", 0.0);
-    auto gnss_var = op.add<popl::Value<double>>("z", "var", "GNSS variance", 0.0000010);
+    auto gnss_var = op.add<popl::Value<double>>("z", "var", "GNSS variance", 0.000010);
     auto map_db_path = op.add<popl::Value<std::string>>("p", "map-db", "store a map database at this path after SLAM", "");
     auto mapping = op.add<popl::Value<bool>>("n", "map-n", "enable mapping of existing map-db", false);
     auto show_3d = op.add<popl::Value<int>>("s", "show", "show pangolin 3d view", 0);
