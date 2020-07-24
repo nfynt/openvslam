@@ -262,7 +262,7 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
         gps_initialized = true;
         continue;*/
 
-        if (curr_geo->sq_distance_from(start_geo) > 64.0) {
+        if (curr_geo->sq_distance_from(start_geo) > 400.0) {
             //the sensor has roughly moved 3 meters from start - good enough to initialize?
 
             //Estimate the camera position in SLAM world cs
@@ -337,6 +337,9 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
         if (slam_tracking) {
             // utm coordinates transformed to slam world
             Eigen::Vector3d t_gnss = R_wgnss * (curr_geo->get_vector() - start_geo->get_vector());
+            
+			//verify this??
+            var_gnss = (gps->accumulated_delta_range + gps->speed) / ((gps->sat_count <= 0) ? 0.5 : gps->sat_count);
 
             SLAM->feed_GNSS_measurement(t_gnss, var_gnss, gps->get_last_timestamp());
 

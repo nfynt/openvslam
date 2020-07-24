@@ -64,7 +64,8 @@ void gps_update_thread() {
         else {
             msg = string(data);
             spdlog::info("TCP: " + msg);
-            msg = msg.substr(msg.find_first_of('(') + 1, msg.find_first_of(')') - msg.find_first_of('(') - 1);
+            //msg = msg.substr(msg.find_first_of('(') + 1, msg.find_first_of(')') - msg.find_first_of('(') - 1);
+            //msg = msg.substr(msg.find_first_of('(') + 1, msg.find_first_of(')') - msg.find_first_of('(') - 1);
             fout << msg + "\n";
         }
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -102,7 +103,7 @@ void start_recording(string ip, int port, int freq, string gps_path, string vide
     }
     fout.close();
     fout.open(gps_path, fstream::app);
-    fout << "# $<time,lat,lon,alt>\n";
+    fout << "# <time,lat,lon,alt,speed,accuracy,satellite_cnt,multipath_ind,acc_delta_range_uncertainty_m,constellation_type>\n";
 
 	// Video record code has been commented since the capture fps is not realiable
 	// External cam recorder is used in parallel to this recording exe for capturing the data

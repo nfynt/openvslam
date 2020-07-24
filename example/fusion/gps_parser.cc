@@ -16,8 +16,8 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
         this->is_valid = true;
         spdlog::info("Parsing gps file @ " + file_path);
         string msg;
-        string txt[4];
-        bool valid;
+        string txt[10];
+        int ind;
 
         chrono::milliseconds sleep_time(0);
         long long last_stamp = 0;
@@ -35,22 +35,38 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
                 continue;
 
             std::stringstream msg_stream(msg);
-            valid = false;
+            this->is_valid = false;
+            ind = 0;
+            //if (getline(msg_stream, txt[0], ','))
+            //    if (getline(msg_stream, txt[1], ','))
+            //        if (getline(msg_stream, txt[2], ','))
+            //            if (getline(msg_stream, txt[3], ','))
+            //                this->is_valid = true;
+            while (msg_stream.good()) {
+                getline(msg_stream, txt[ind], ',');
+                ind++;
+                if (ind > 9) {
+                    this->is_valid = true;
+                    break;
+                }
+            }
 
-            if (getline(msg_stream, txt[0], ','))
-                if (getline(msg_stream, txt[1], ','))
-                    if (getline(msg_stream, txt[2], ','))
-                        if (getline(msg_stream, txt[3], ','))
-                            valid = true;
-
-            if (valid) {
+            if (this->is_valid) {
                 this->timestamp = stoll(txt[0]);
                 this->lat = stod(txt[1]);
                 this->lon = stod(txt[2]);
                 this->alt = stod(txt[3]);
+                this->speed = stod(txt[4]);
+                this->accuracy = stod(txt[5]);
+                this->sat_count = stoi(txt[6]);
+                this->multipath_ind = stoi(txt[7]);
+                this->accumulated_delta_range = stod(txt[8]);
+                this->constellation_type = txt[9];
             }
             else {
                 spdlog::warn(msg);
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                continue;
             }
 
             if (last_stamp == 0) {
@@ -93,7 +109,8 @@ void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
     this->terminate = false;
 
 	string msg;
-    string txt[4];
+    string txt[10];
+    int ind;
     sf::TcpSocket socket;
     sf::Socket::Status status;
 
@@ -136,18 +153,34 @@ void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
 
             std::stringstream msg_stream(msg);
             this->is_valid = false;
-
-            if (getline(msg_stream, txt[0], ','))
-                if (getline(msg_stream, txt[1], ','))
-                    if (getline(msg_stream, txt[2], ','))
-                        if (getline(msg_stream, txt[3], ','))
-                            this->is_valid = true;
+            ind = 0;
+            //if (getline(msg_stream, txt[0], ','))
+            //    if (getline(msg_stream, txt[1], ','))
+            //        if (getline(msg_stream, txt[2], ','))
+            //            if (getline(msg_stream, txt[3], ','))
+            //                this->is_valid = true;
+			while (msg_stream.good())
+			{
+                getline(msg_stream, txt[ind], ',');
+                ind++;
+                if (ind > 9) {
+                    this->is_valid = true;
+                    break;
+                }
+			}
 
             if (this->is_valid) {
                 this->timestamp = stoll(txt[0]);
                 this->lat = stod(txt[1]);
                 this->lon = stod(txt[2]);
                 this->alt = stod(txt[3]);
+                this->speed = stod(txt[4]);
+                this->accuracy = stod(txt[5]);
+                this->sat_count = stoi(txt[6]);
+                this->multipath_ind = stoi(txt[7]);
+                this->accumulated_delta_range = stod(txt[8]);
+                this->constellation_type = txt[9];
+
             }
             else {
                 spdlog::warn(msg);

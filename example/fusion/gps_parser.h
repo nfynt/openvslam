@@ -49,6 +49,11 @@ public:
     static Eigen::Vector3d get_direction_vector(geo_utm& p1, geo_utm& p2, double altitude = 0.0);
 
     double lat, lon, alt;
+    double speed, accuracy;
+    int sat_count,multipath_ind;
+	//accumulated delta range uncertainity in meters
+    double accumulated_delta_range;
+    std::string constellation_type;
     bool is_valid;
 
 private:
