@@ -317,7 +317,7 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
             Eigen::Vector3d t_gnss = R_wgnss * (curr_geo->get_vector() - start_geo->get_vector());
 
             //verify this??
-            var_gnss = (gps->accumulated_delta_range + gps->speed) / ((gps->sat_count <= 0) ? 0.5 : gps->sat_count);
+           // var_gnss = (gps->accumulated_delta_range + gps->speed) / ((gps->sat_count <= 0) ? 0.5 : gps->sat_count);
 
             SLAM->feed_GNSS_measurement(t_gnss, var_gnss, time_s->get_dt_start());
 

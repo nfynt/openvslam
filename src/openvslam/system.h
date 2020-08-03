@@ -148,6 +148,20 @@ public:
     //-----------------------------------------------
     //NFYNT updates
 
+    //! Global GPS optim is running
+    bool global_GPS_optim_is_running() const;
+
+    //! get current nr of keyframes
+    unsigned int get_current_nr_kfs() const;
+
+    //! request global optim
+    void request_global_GPS_optim();
+
+	void set_gps_initialized() const;
+
+	void set_gps_data_is_used();
+	bool is_gps_data_used();
+
     //SLAM tracking state is active
     bool is_tracking() const;
 
@@ -156,7 +170,7 @@ public:
 
     //Add gps translation to queue (transformed from utm to SLAM world)
     //and variance of measurement; the timestamp in milliseconds since the start of this system
-    void feed_GNSS_measurement(Eigen::Vector3d t_wgps, double var_gps, long timestamp);
+    void feed_GNSS_measurement(Eigen::Vector3d t_wgnss, double var_gps, long timestamp);
 
 private:
     //! Check reset request of the system
@@ -221,6 +235,12 @@ private:
 
     //! mutex for flags of enable/disable loop detector
     mutable std::mutex mtx_loop_detector_;
+
+
+	//------------------------------------
+	//NFYNT additions
+
+	bool is_gps_used = false;
 };
 
 } // namespace openvslam

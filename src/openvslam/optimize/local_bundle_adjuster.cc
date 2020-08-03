@@ -223,29 +223,29 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
 
     //4.1 GNSS unary edge for current keyframe
     //Add dangling GNSS measurement edge for existing keyframe
-	for (auto kf : local_keyfrms)
-	{
-		if (kf.second->has_gnss_measurement())
-		{
-            const auto vtx = keyfrm_vtx_container.get_vertex(kf.first);
-            const auto gnss_edge = new internal::gnss_measurement_edge();
-            Vec3_t obs = kf.second->t_gnss;
-            gnss_edge->setVertex(0, vtx);
-            gnss_edge->setMeasurement(obs);                                                  //zk
-            gnss_edge->setInformation(Mat33_t::Identity() * 1 / kf.second->gnss_variance); //wk
-            
-			//kernel function
-            gnss_edge->setRobustKernel(new g2o::RobustKernelHuber());
-            optimizer.addEdge(gnss_edge);
-            extra_frm++;
-		}
-	}
+	//for (auto kf : local_keyfrms)
+	//{
+	//	if (kf.second->has_gnss_measurement())
+	//	{
+ //           const auto vtx = keyfrm_vtx_container.get_vertex(kf.first);
+ //           const auto gnss_edge = new internal::gnss_measurement_edge();
+ //           Vec3_t obs = kf.second->t_gnss;
+ //           gnss_edge->setVertex(0, vtx);
+ //           gnss_edge->setMeasurement(obs);                                                  //zk
+ //           gnss_edge->setInformation(Mat33_t::Identity() * 1 / kf.second->gnss_variance); //wk
+ //           
+	//		//kernel function
+ //           gnss_edge->setRobustKernel(new g2o::RobustKernelHuber());
+ //           optimizer.addEdge(gnss_edge);
+ //           extra_frm++;
+	//	}
+	//}
 
-    if (curr_keyfrm->has_gnss_measurement()) {
-    Vec3_t obs = curr_keyfrm->t_gnss;
-    std::cout << curr_keyfrm->id_ << "\t t_gnss=" << obs.transpose() << std::endl;
-    //std::cout << "LBA gnss edges: " << extra_frm << "\n";
-    }
+ //   if (curr_keyfrm->has_gnss_measurement()) {
+ //   Vec3_t obs = curr_keyfrm->t_gnss;
+ //   std::cout << curr_keyfrm->id_ << "\t t_gnss=" << obs.transpose() << std::endl;
+ //   //std::cout << "LBA gnss edges: " << extra_frm << "\n";
+ //   }
 
     // 5. 1回目の最適化を実行 - Run the first optimization
 

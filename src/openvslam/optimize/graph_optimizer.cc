@@ -239,20 +239,20 @@ void graph_optimizer::optimize(data::keyframe* loop_keyfrm, data::keyframe* curr
     }
 
 	//4.1 GNSS unary edge for current keyframe
-    for (auto keyfrm : all_keyfrms) {
-        if (keyfrm->has_gnss_measurement()) {
-            const auto vtx = vertices[keyfrm->id_];
-            const auto gnss_edge = new internal::sim3::gnss_measurement_edge();
-            Vec3_t obs = keyfrm->t_gnss;
-            gnss_edge->setVertex(0, vtx);
-            gnss_edge->setMeasurement(obs);                                             //zk
-            gnss_edge->setInformation(Mat33_t::Identity() * 1 / keyfrm->gnss_variance); //wk
+    //for (auto keyfrm : all_keyfrms) {
+    //    if (keyfrm->has_gnss_measurement()) {
+    //        const auto vtx = vertices[keyfrm->id_];
+    //        const auto gnss_edge = new internal::sim3::gnss_measurement_edge();
+    //        Vec3_t obs = keyfrm->t_gnss;
+    //        gnss_edge->setVertex(0, vtx);
+    //        gnss_edge->setMeasurement(obs);                                             //zk
+    //        gnss_edge->setInformation(Mat33_t::Identity() * 1 / keyfrm->gnss_variance); //wk
 
-            //kernel function
-            gnss_edge->setRobustKernel(new g2o::RobustKernelHuber());
-            optimizer.addEdge(gnss_edge);
-        }
-    }
+    //        //kernel function
+    //        gnss_edge->setRobustKernel(new g2o::RobustKernelHuber());
+    //        optimizer.addEdge(gnss_edge);
+    //    }
+    //}
 
     // 4. pose graph optimizationを走らせる
 

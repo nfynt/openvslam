@@ -1,10 +1,11 @@
 #include "openvslam/data/keyframe.h"
 #include "openvslam/data/landmark.h"
 #include "openvslam/data/map_database.h"
-#include "openvslam/optimize/global_bundle_adjuster.h"
+#include "openvslam/optimize/global_gps_bundle_adjuster.h"
 #include "openvslam/optimize/internal/landmark_vertex_container.h"
 #include "openvslam/optimize/internal/se3/shot_vertex_container.h"
 #include "openvslam/optimize/internal/se3/reproj_edge_wrapper.h"
+#include "openvslam/optimize/internal/gnss_measurement_edge.h"
 #include "openvslam/util/converter.h"
 
 #include <g2o/core/solver.h>
@@ -15,56 +16,103 @@
 #include <g2o/solvers/eigen/linear_solver_eigen.h>
 #include <g2o/solvers/csparse/linear_solver_csparse.h>
 #include <g2o/core/optimization_algorithm_levenberg.h>
+#include <g2o/core/sparse_optimizer_terminate_action.h>
+#include <g2o/types/slam3d/parameter_se3_offset.h>
 
-#include "openvslam/optimize/internal/gnss_measurement_edge.h"
-#include <spdlog/spdlog.h>
 #include <iostream>
 
 namespace openvslam {
 namespace optimize {
 
-global_bundle_adjuster::global_bundle_adjuster(data::map_database* map_db, const unsigned int num_iter, const bool use_huber_kernel)
-    : map_db_(map_db), num_iter_(num_iter), use_huber_kernel_(use_huber_kernel) {}
+global_gps_bundle_adjuster::global_gps_bundle_adjuster(data::map_database* map_db,
+                                                       const unsigned int num_iter,
+                                                       const unsigned int nr_kfs_to_optim,
+                                                       const bool use_huber_kernel)
+    : map_db_(map_db), num_iter_(num_iter), nr_kfs_to_optim_(nr_kfs_to_optim), use_huber_kernel_(use_huber_kernel) {}
 
-void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_global_BA, bool* const force_stop_flag) const {
-    // 1. データを集める - Collect data
-	std::cout << "global_bundle_adjuting\n";
+void global_gps_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_global_BA,
+                                          bool* const force_stop_flag) {
+    // 1. Get all keyframes and landmarks
+
+    set_running();
+
+    std::cout << "=====RUNNING GLOBAL GPS OPTIM=====\n";
     const auto keyfrms = map_db_->get_all_keyframes();
     const auto lms = map_db_->get_all_landmarks();
     std::vector<bool> is_optimized_lm(lms.size(), true);
 
-    // 2. optimizerを構築 - build optimizer
+    // sort keyframes according to id
+    std::map<unsigned int, data::keyframe*> sorted_kfs;
+    for (auto kf : keyfrms) {
+        sorted_kfs.insert(std::pair<unsigned int, data::keyframe*>(kf->id_, kf));
+    }
+    std::vector<data::keyframe*> all_kfs_sorted;
+    for (auto pair : sorted_kfs) {
+        all_kfs_sorted.push_back(pair.second);
+    }
+    // get the last nr_kfs_to_optim_ keyframes from the map
+    std::vector<data::keyframe*> local_kfs(
+        all_kfs_sorted.end() - std::min(all_kfs_sorted.size(), nr_kfs_to_optim_), all_kfs_sorted.end());
 
-    auto linear_solver = g2o::make_unique<g2o::LinearSolverCSparse<g2o::BlockSolver_6_3::PoseMatrixType>>();
-    auto block_solver = g2o::make_unique<g2o::BlockSolver_6_3>(std::move(linear_solver));
-    auto algorithm = new g2o::OptimizationAlgorithmLevenberg(std::move(block_solver));
+    std::cout << "Local nr kfs in global gps BA: " << local_kfs.size() << std::endl;
+    std::cout << "Total nr of kfs in global gps BA: " << keyfrms.size() << std::endl;
+
+    // 2. optimizerを構築
+
+    auto linear_solver = ::g2o::make_unique<::g2o::LinearSolverCSparse<::g2o::BlockSolver_6_3::PoseMatrixType>>();
+    auto block_solver = ::g2o::make_unique<::g2o::BlockSolver_6_3>(std::move(linear_solver));
+    auto algorithm = new ::g2o::OptimizationAlgorithmLevenberg(std::move(block_solver));
 
     g2o::SparseOptimizer optimizer;
     optimizer.setAlgorithm(algorithm);
+
+    optimizer.setVerbose(true);
 
     if (force_stop_flag) {
         optimizer.setForceStopFlag(force_stop_flag);
     }
 
-    // 3. keyframeをg2oのvertexに変換してoptimizerにセットする - Convert keyframe to g2o vertex and set to optimizer
+    // 3. keyframeをg2oのvertexに変換してoptimizerにセットする
 
     // shot vertexのcontainer
     internal::se3::shot_vertex_container keyfrm_vtx_container(0, keyfrms.size());
 
-    // keyframesをoptimizerにセット - set keyframes to optimizer
-    for (const auto keyfrm : keyfrms) {
+    // for gps priors
+    g2o::ParameterSE3Offset* offset = new g2o::ParameterSE3Offset();
+    offset->setId(0);
+    optimizer.addParameter(offset);
+
+    // keyframesをoptimizerにセット
+    unsigned int fixed_id = local_kfs[0]->id_;
+    for (const auto keyfrm : local_kfs) {
         if (!keyfrm) {
             continue;
         }
         if (keyfrm->will_be_erased()) {
             continue;
         }
-
-        auto keyfrm_vtx = keyfrm_vtx_container.create_vertex(keyfrm, keyfrm->id_ == 0);
+        auto keyfrm_vtx = keyfrm_vtx_container.create_vertex(keyfrm, keyfrm->id_ == fixed_id);
         optimizer.addVertex(keyfrm_vtx);
+
+        // add gps priors to test
+        //if (keyfrm->has_gnss_measurement()) 
+		{
+            auto gps_edge = new internal::gnss_measurement_edge();
+            Vec3_t obs = keyfrm->get_gnss_data().t_wgnss;
+            gps_edge->setMeasurement(obs);
+            Mat33_t info_mat = Mat33_t::Identity();
+            info_mat(0, 0) = keyfrm->get_gnss_data().uncertainity / 10.0;
+            info_mat(1, 1) = keyfrm->get_gnss_data().uncertainity / 100.0; //high variance for altitude
+            info_mat(2, 2) = keyfrm->get_gnss_data().uncertainity / 10.0;
+            gps_edge->setInformation(info_mat);
+            gps_edge->setVertex(0, keyfrm_vtx);
+            gps_edge->setParameterId(0, 0);
+
+            optimizer.addEdge(gps_edge);
+        }
     }
 
-    // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する - Connect keyframe and landmark vertex with reprojection edge
+    // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する
 
     // landmark vertexのcontainer
     internal::landmark_vertex_container lm_vtx_container(keyfrm_vtx_container.get_max_vertex_id() + 1, lms.size());
@@ -74,11 +122,11 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
     std::vector<reproj_edge_wrapper> reproj_edge_wraps;
     reproj_edge_wraps.reserve(10 * lms.size());
 
-    // 有意水準5%のカイ2乗値 - Chi - square value with a significance level of 5 %
-    // 自由度n=2
+    // 有意水準5%のカイ2乗値
+    // DOF=2
     constexpr float chi_sq_2D = 5.99146;
     const float sqrt_chi_sq_2D = std::sqrt(chi_sq_2D);
-    // 自由度n=3
+    // DOF=3
     constexpr float chi_sq_3D = 7.81473;
     const float sqrt_chi_sq_3D = std::sqrt(chi_sq_3D);
 
@@ -123,20 +171,6 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
             reproj_edge_wraps.push_back(reproj_edge_wrap);
             optimizer.addEdge(reproj_edge_wrap.edge_);
             ++num_edges;
-
-            //Add dangling GNSS measurement edge for keyframe
-            //if (keyfrm->has_gnss_measurement()) {
-            //    //g2o::OptimizableGraph::Edge* edge_;
-            //    auto gnss_edge = new internal::gnss_measurement_edge();
-            //    Vec3_t obs = keyfrm->t_gnss;
-            //    //gnss_edge->setVertex(0, gnss_vrt);
-            //    gnss_edge->setMeasurement(obs);                                             //zk
-            //    gnss_edge->setInformation(Mat33_t::Identity() * 1 / keyfrm->gnss_variance); //wk
-            //    //edge_ = gnss_edge;
-            //    //kernel function
-            //    gnss_edge->setRobustKernel(new g2o::RobustKernelHuber());
-            //    optimizer.addEdge(gnss_edge);
-            //}
         }
 
         if (num_edges == 0) {
@@ -144,10 +178,13 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
             is_optimized_lm.at(i) = false;
         }
     }
-    spdlog::info("global BA edge count: {}", reproj_edge_wraps.size());
 
-    // 5. 最適化を実行 - Perform optimization
-
+    // 5. Perform optimization
+    ::g2o::SparseOptimizerTerminateAction* terminateAction = 0;
+    terminateAction = new ::g2o::SparseOptimizerTerminateAction;
+    terminateAction->setGainThreshold(1e-4);
+    terminateAction->setMaxIterations(num_iter_);
+    optimizer.addPostIterationAction(terminateAction);
     optimizer.initializeOptimization();
     optimizer.optimize(num_iter_);
 
@@ -155,9 +192,9 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
         return;
     }
 
-    // 6. 結果を取り出す - Retrieve results
+    // 6. Retrieve results
 
-    for (auto keyfrm : keyfrms) {
+    for (auto keyfrm : local_kfs) {
         if (keyfrm->will_be_erased()) {
             continue;
         }
@@ -197,6 +234,21 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
             lm->loop_BA_identifier_ = lead_keyfrm_id_in_global_BA;
         }
     }
+    std::cout << "=====FINISHED GLOBAL GPS OPTIM=====\n";
+    // finished set is running to false SLAM can continue
+    set_finished();
+}
+
+void global_gps_bundle_adjuster::set_running() {
+    is_running_ = true;
+}
+
+void global_gps_bundle_adjuster::set_finished() {
+    is_running_ = false;
+}
+
+bool global_gps_bundle_adjuster::is_running() {
+    return is_running_;
 }
 
 } // namespace optimize

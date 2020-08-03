@@ -303,5 +303,16 @@ void frame::compute_stereo_from_depth(const cv::Mat& right_img_depth) {
     }
 }
 
+//--------------------------------------------------
+//NFYNT additions
+
+gnss::data frame::get_gnss() {
+    return gnss_data_;
+}
+
+void frame::set_gnss(const gnss::data& gnss_data) {
+    gnss_data_ = gnss_data;
+}
+
 } // namespace data
 } // namespace openvslam

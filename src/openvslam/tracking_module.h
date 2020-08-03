@@ -8,6 +8,8 @@
 #include "openvslam/module/keyframe_inserter.h"
 #include "openvslam/module/frame_tracker.h"
 
+#include "openvslam/data/gnss_data.h"
+
 #include <mutex>
 
 #include <opencv2/core/core.hpp>
@@ -44,7 +46,6 @@ public:
     tracking_module(const std::shared_ptr<config>& cfg, system* system, data::map_database* map_db,
                     data::bow_vocabulary* bow_vocab, data::bow_database* bow_db);
 
-	
     //! Destructor
     ~tracking_module();
 
@@ -123,6 +124,12 @@ public:
 
     //! elapsed microseconds for each tracking
     double elapsed_ms_ = 0.0;
+
+    //----------------------------------------------
+    //NFYNT additions
+
+    // add world gnss measurement with variance factor to queue
+    void queue_gnss_data(const gnss::data& gnss_data);
 
 protected:
     //-----------------------------------------
@@ -249,7 +256,11 @@ protected:
     //! Pause of the tracking module is requested or not
     bool pause_is_requested_ = false;
 
+	//--------------------------------------
+	//NFYNT additions
 
+    // maps timestamp to gps::data
+    std::map<long, gnss::data> gnss_data_map_;
 };
 
 } // namespace openvslam

@@ -28,6 +28,9 @@ public:
     //! local_landmark color
     std::array<float, 3> local_lm_{};
 
+	//! GPS color
+    std::array<float, 3> gps_rgb_{};
+
 private:
     void set_color_as_white();
 

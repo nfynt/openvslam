@@ -91,6 +91,14 @@ Mat44_t tracking_module::track_monocular_image(const cv::Mat& img, const double 
         curr_frm_ = data::frame(img_gray_, timestamp, extractor_left_, bow_vocab_, camera_, cfg_->true_depth_thr_, mask);
     }
 
+    if (system_->is_gps_data_used()) {
+        // get current gps readings and assign to frame
+        auto it = gnss_data_map_.find((long)(timestamp*1000));
+        // check if we have a gps reading at that timestamp, if yes insert it
+        if (it != gnss_data_map_.end())
+            curr_frm_.set_gnss(it->second);
+    }
+
     track();
 
     const auto end = std::chrono::system_clock::now();
@@ -249,12 +257,12 @@ void tracking_module::track() {
         }
 
         //update gnss measurement of current keyframe
-		if (succeeded && mapper_->get_num_gnss_measurement() > 0) {
-			//time synchronized gnss value to skip measurement of already estimated poses
-			std::pair<Eigen::Vector3d*, double*> gnss = mapper_->dequeue_gnss_measurement(true);
-			curr_frm_.ref_keyfrm_->add_gnss_measurement(gnss.first, gnss.second);
-            
-        }
+		//if (succeeded && mapper_->get_num_gnss_measurement() > 0) {
+		//	//time synchronized gnss value to skip measurement of already estimated poses
+		//	std::pair<Eigen::Vector3d*, double*> gnss = mapper_->dequeue_gnss_measurement(true);
+		//	curr_frm_.ref_keyfrm_->add_gnss_measurement(gnss.first, gnss.second);
+  //          
+  //      }
 
         // tidy up observations
         for (unsigned int idx = 0; idx < curr_frm_.num_keypts_; ++idx) {
@@ -561,6 +569,14 @@ bool tracking_module::check_and_execute_pause() {
     else {
         return false;
     }
+}
+
+
+//-------------------------------------------------
+//NFYNT additions
+
+void tracking_module::queue_gnss_data(const gnss::data& gnss_data) {
+    gnss_data_map_.insert(std::pair<long, gnss::data>(gnss_data.timestamp, gnss_data));
 }
 
 } // namespace openvslam

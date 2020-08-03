@@ -36,14 +36,14 @@ keyframe::keyframe(const frame& frm, map_database* map_db, bow_database* bow_db)
       log_scale_factor_(frm.log_scale_factor_), scale_factors_(frm.scale_factors_),
       level_sigma_sq_(frm.level_sigma_sq_), inv_level_sigma_sq_(frm.inv_level_sigma_sq_),
       // observations
-      landmarks_(frm.landmarks_),
+      landmarks_(frm.landmarks_), gnss_data_(frm.gnss_data_),
       // databases
       map_db_(map_db), bow_db_(bow_db), bow_vocab_(frm.bow_vocab_) {
     // set pose parameters (cam_pose_wc_, cam_center_) using frm.cam_pose_cw_
     set_cam_pose(frm.cam_pose_cw_);
 
 	//NFYNT additions
-    this->has_gnss = false;
+   // this->has_gnss = false;
 }
 
 keyframe::keyframe(const unsigned int id, const unsigned int src_frm_id, const double timestamp,
@@ -52,7 +52,7 @@ keyframe::keyframe(const unsigned int id, const unsigned int src_frm_id, const d
                    const std::vector<cv::KeyPoint>& undist_keypts, const eigen_alloc_vector<Vec3_t>& bearings,
                    const std::vector<float>& stereo_x_right, const std::vector<float>& depths, const cv::Mat& descriptors,
                    const unsigned int num_scale_levels, const float scale_factor,
-                   bow_vocabulary* bow_vocab, bow_database* bow_db, map_database* map_db)
+                   bow_vocabulary* bow_vocab, bow_database* bow_db, map_database* map_db, const gnss::data gnss_data)
     : // meta information
       id_(id), src_frm_id_(src_frm_id), timestamp_(timestamp),
       // camera parameters
@@ -69,7 +69,7 @@ keyframe::keyframe(const unsigned int id, const unsigned int src_frm_id, const d
       level_sigma_sq_(feature::orb_params::calc_level_sigma_sq(num_scale_levels, scale_factor)),
       inv_level_sigma_sq_(feature::orb_params::calc_inv_level_sigma_sq(num_scale_levels, scale_factor)),
       // others
-      landmarks_(std::vector<landmark*>(num_keypts, nullptr)),
+      landmarks_(std::vector<landmark*>(num_keypts, nullptr)), gnss_data_(gnss_data),
       // databases
       map_db_(map_db), bow_db_(bow_db), bow_vocab_(bow_vocab) {
     // compute BoW (bow_vec_, bow_feat_vec_) using descriptors_
@@ -88,7 +88,7 @@ keyframe::keyframe(const unsigned int id, const unsigned int src_frm_id, const d
     // TODO: should set loop_edges_ using add_loop_edge()
 
 	//NFYNT additions
-	this->has_gnss = false;
+	//this->has_gnss = false;
 }
 
 nlohmann::json keyframe::to_json() const {
@@ -441,15 +441,19 @@ bool keyframe::will_be_erased() {
 //-------------------------------------------------------------------
 // NFYNT additions
 
-void keyframe::add_gnss_measurement(Eigen::Vector3d* t_g, double* var_gnss) {
-    this->t_gnss = *t_g;
-    this->gnss_variance = *var_gnss;
-    this->has_gnss = true;
+gnss::data keyframe::get_gnss_data() {
+    return gnss_data_;
 }
 
-bool keyframe::has_gnss_measurement() {
-    return this->has_gnss;
-}
+//void keyframe::add_gnss_measurement(Eigen::Vector3d* t_g, double* var_gnss) {
+//    this->t_gnss = *t_g;
+//    this->gnss_variance = *var_gnss;
+//    this->has_gnss = true;
+//}
+//
+//bool keyframe::has_gnss_measurement() {
+//    return this->has_gnss;
+//}
 
 
 } // namespace data

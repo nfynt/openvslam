@@ -63,9 +63,10 @@ inline bool gnss_measurement_edge::write(std::ostream& os) const {
 
 inline void gnss_measurement_edge::computeError() {
     const auto v1 = static_cast<const se3::shot_vertex*>(_vertices.at(0));
-    const Vec3_t obs(_measurement);
-    //t_gnss - t_wslam
-    _error = obs - v1->estimate().translation();
+    //const Vec3_t obs(_measurement);
+    const Vec3_t cam_center = -v1->estimate().rotation().toRotationMatrix().transpose() * v1->estimate().translation();
+    // t_wslam - t_gnss
+    _error = cam_center - _measurement;
 }
 
 inline void gnss_measurement_edge::linearizeOplus() {

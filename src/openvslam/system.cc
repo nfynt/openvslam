@@ -12,6 +12,8 @@
 #include "openvslam/publish/map_publisher.h"
 #include "openvslam/publish/frame_publisher.h"
 
+#include "openvslam/data/gnss_data.h"
+
 #include <thread>
 
 #include <spdlog/spdlog.h>
@@ -348,27 +350,55 @@ void system::resume_other_threads() const {
 //-------------------------------------------------------------------
 // NFYNT methods
 
+//! Global GPS optim is running
+void system::set_gps_initialized() const {
+    return global_optimizer_->set_gps_initialized();
+}
+
+//! Global GPS optim is running
+bool system::global_GPS_optim_is_running() const {
+    return global_optimizer_->gps_optim_is_running();
+}
+
+//! get current nr of keyframes
+unsigned int system::get_current_nr_kfs() const {
+    return map_db_->get_all_keyframes().size();
+}
+
+//! request global optim
+void system::request_global_GPS_optim() {
+    global_optimizer_->run_global_GPS_optim();
+}
+
+void system::set_gps_data_is_used() {
+    is_gps_used = true;
+}
+
+bool system::is_gps_data_used() {
+    return is_gps_used;
+}
+
 bool system::is_tracking() const {
-    if (tracker_->tracking_state_ == tracker_state_t::Tracking) 
+    if (tracker_->tracking_state_ == tracker_state_t::Tracking)
         return true;
     return false;
 }
 
 void system::feed_GNSS_measurement(Eigen::Vector3d t_wgnss, double var_gps, long timestamp) {
+    //abort if not tracking
+    //   if (tracker_->tracking_state_ != tracker_state_t::Tracking) {
+    //       spdlog::warn("Tracking is not active... curr gnss will be dropped");
+    //       return;
+    //}
 
-	//abort if not tracking
-    if (tracker_->tracking_state_ != tracker_state_t::Tracking) {
-        spdlog::warn("Tracking is not active... curr gnss will be dropped");
-        return;
-	}
-
-    mapper_->enqueue_gnss_measurement(&t_wgnss, &var_gps, &timestamp);
-	//tracker_->curr_frm_.add_gnss_measurement(t_wgnss);
+    //mapper_->enqueue_gnss_measurement(&t_wgnss, &var_gps, &timestamp);
+    gnss::data data(t_wgnss, var_gps, timestamp);
+    tracker_->queue_gnss_data(data);
+    //tracker_->curr_frm_.add_gnss_measurement(t_wgnss);
 }
 
 void system::set_time_sync_ptr(util::time_sync* time_s) {
-    mapper_->set_time_sync_ptr(time_s);
+   // mapper_->set_time_sync_ptr(time_s);
 }
-
 
 } // namespace openvslam

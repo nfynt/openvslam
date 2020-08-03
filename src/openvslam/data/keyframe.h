@@ -6,6 +6,8 @@
 #include "openvslam/data/graph_node.h"
 #include "openvslam/data/bow_vocabulary.h"
 
+#include "openvslam/data/gnss_data.h"
+
 #include <set>
 #include <mutex>
 #include <atomic>
@@ -60,7 +62,7 @@ public:
              const std::vector<cv::KeyPoint>& undist_keypts, const eigen_alloc_vector<Vec3_t>& bearings,
              const std::vector<float>& stereo_x_right, const std::vector<float>& depths, const cv::Mat& descriptors,
              const unsigned int num_scale_levels, const float scale_factor,
-             bow_vocabulary* bow_vocab, bow_database* bow_db, map_database* map_db);
+             bow_vocabulary* bow_vocab, bow_database* bow_db, map_database* map_db, const gnss::data gnss_data = gnss::data());
 
     /**
      * Encode this keyframe information as JSON
@@ -285,20 +287,14 @@ public:
     //! list of 1 / sigma^2 for optimization
     const std::vector<float> inv_level_sigma_sq_;
 
-	//------------------------------------------------------------
-	//NFYNT additions
+    //------------------------------------------------------------
+    //NFYNT additions
 
-	// the optimized gnss translation vector maintained from local_bundle_adjuster
-	Eigen::Vector3d t_gnss;
+    //get gnss data
+    gnss::data get_gnss_data();
 
-	// expected variance of gnss
-    double gnss_variance;
-
-    // gnss measurement available for this keyframe
-    bool has_gnss_measurement();
-
-	//add or update gnss measurement of this keyframe 
-    void add_gnss_measurement(Eigen::Vector3d* t_gnss, double* var_gnss);
+    //add or update gnss measurement of this keyframe
+    //void add_gnss_measurement(Eigen::Vector3d* t_gnss, double* var_gnss);
 
 private:
     //-----------------------------------------
@@ -340,12 +336,14 @@ private:
     //! flag which indicates this keyframe will be erased
     std::atomic<bool> will_be_erased_{false};
 
-	//--------------------------------------------------------------
+    //--------------------------------------------------------------
     // NFYNT additions
 
+    //! gnss measurement
+    gnss::data gnss_data_;
+
     //gnss measurement
-    bool has_gnss;
-	
+    //bool has_gnss;
 };
 
 } // namespace data

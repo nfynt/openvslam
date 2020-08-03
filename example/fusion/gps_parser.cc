@@ -6,7 +6,6 @@
 
 // Continuously parses the gps text and updated with respect to timestamp. Run in separate thead!
 void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
-    this->lat = this->lon = this->alt = 0.0;
     this->terminate = false;
 
     ifstream fin;
@@ -37,11 +36,7 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
             std::stringstream msg_stream(msg);
             this->is_valid = false;
             ind = 0;
-            //if (getline(msg_stream, txt[0], ','))
-            //    if (getline(msg_stream, txt[1], ','))
-            //        if (getline(msg_stream, txt[2], ','))
-            //            if (getline(msg_stream, txt[3], ','))
-            //                this->is_valid = true;
+
             while (msg_stream.good()) {
                 getline(msg_stream, txt[ind], ',');
                 ind++;
@@ -53,15 +48,14 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
 
             if (this->is_valid) {
                 this->timestamp = stoll(txt[0]);
-                this->lat = stod(txt[1]);
-                this->lon = stod(txt[2]);
-                this->alt = stod(txt[3]);
-                this->speed = stod(txt[4]);
-                this->accuracy = stod(txt[5]);
-                this->sat_count = stoi(txt[6]);
-                this->multipath_ind = stoi(txt[7]);
-                this->accumulated_delta_range = stod(txt[8]);
-                this->constellation_type = txt[9];
+                if (last_stamp == 0) {
+                    last_stamp = this->timestamp;
+                }
+                gps_data data(stod(txt[1]), stod(txt[2]), stod(txt[3]), stod(txt[4]),
+                              stod(txt[5]), stoi(txt[6]), stoi(txt[7]), stod(txt[8]), txt[9]);
+                gps_records.insert(std::pair<long,gps_data>((long)(this->timestamp - last_stamp), data));
+
+				curr_gps_data = data;
             }
             else {
                 spdlog::warn(msg);
@@ -69,9 +63,6 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
                 continue;
             }
 
-            if (last_stamp == 0) {
-                last_stamp = this->timestamp;
-            }
 
             const auto tp_2 = std::chrono::steady_clock::now();
             // double (s)
@@ -105,7 +96,6 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
 
 void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
     
-	this->lat = this->lon = this->alt = 0.0;
     this->terminate = false;
 
 	string msg;
@@ -154,11 +144,7 @@ void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
             std::stringstream msg_stream(msg);
             this->is_valid = false;
             ind = 0;
-            //if (getline(msg_stream, txt[0], ','))
-            //    if (getline(msg_stream, txt[1], ','))
-            //        if (getline(msg_stream, txt[2], ','))
-            //            if (getline(msg_stream, txt[3], ','))
-            //                this->is_valid = true;
+
 			while (msg_stream.good())
 			{
                 getline(msg_stream, txt[ind], ',');
@@ -171,16 +157,11 @@ void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
 
             if (this->is_valid) {
                 this->timestamp = stoll(txt[0]);
-                this->lat = stod(txt[1]);
-                this->lon = stod(txt[2]);
-                this->alt = stod(txt[3]);
-                this->speed = stod(txt[4]);
-                this->accuracy = stod(txt[5]);
-                this->sat_count = stoi(txt[6]);
-                this->multipath_ind = stoi(txt[7]);
-                this->accumulated_delta_range = stod(txt[8]);
-                this->constellation_type = txt[9];
+                gps_data gdata(stod(txt[1]), stod(txt[2]), stod(txt[3]), stod(txt[4]),
+                              stod(txt[5]), stoi(txt[6]), stoi(txt[7]), stod(txt[8]), txt[9]);
+                gps_records.insert(std::pair<long, gps_data>((long)(this->timestamp - last_stamp), gdata));
 
+                curr_gps_data = gdata;
             }
             else {
                 spdlog::warn(msg);
@@ -206,12 +187,42 @@ void gps_parser::terminate_process() {
     spdlog::info("Terminating gps parser");
 }
 
-//update and convert new wgs84 to utm
+//update and convert new wgs84 to utm with latest value
 void gps_parser::update_gps_value(geo_utm* gps) {
-    gps->zone = LatLonToUTMXY(gps->ref_ellipsoid_id, this->lat, this->lon, gps->x, gps->y);
-    gps->altitude = this->alt;
-    (this->lat > 0.0) ? gps->southhemi = false : gps->southhemi = true;
+    //gps->zone = LatLonToUTMXY(gps->ref_ellipsoid_id, this->lat, this->lon, gps->x, gps->y);
+    //gps->altitude = this->alt;
+    gps->zone = this->curr_gps_data.zone;
+    gps->x = this->curr_gps_data.utmx;
+    gps->y = this->curr_gps_data.utmy;
+    gps->uncertainity = this->curr_gps_data.accumulated_delta_range;
+    (this->curr_gps_data.lat > 0.0) ? gps->southhemi = false : gps->southhemi = true;
     //spdlog::info("parser: gps {},{},{}\nutm: {}", this->lat, this->lon, this->alt, gps->value());
+}
+
+void gps_parser::get_gps_value(geo_utm* interp_gps, long t_stamp)
+{
+	if (t_stamp >= this->timestamp || this->gps_records.size()<2) {
+        //video thread ahead of gps
+        update_gps_value(interp_gps);
+        return;
+	}
+
+	for (auto it = this->gps_records.rbegin();it!=this->gps_records.rend();++it)
+	{
+        if (it->first > t_stamp)
+            continue;
+
+		long dt = prev(it)->first - it->first;
+        double dx = prev(it)->second.utmx - it->second.utmx;
+        double dy = prev(it)->second.utmy - it->second.utmy;
+
+		//lerp between utm
+        interp_gps->x = it->second.utmx + (t_stamp - it->first) / dt * dx;
+        interp_gps->y = it->second.utmy + (t_stamp - it->first) / dt * dy;
+
+        interp_gps->uncertainity = it->second.accumulated_delta_range;
+		break;
+	}
 }
 
 long gps_parser::get_last_timestamp() {
@@ -220,9 +231,9 @@ long gps_parser::get_last_timestamp() {
 
 //update gps to new value
 void gps_parser::update_gps_value(geo_location* gps) {
-    gps->latitude = this->lat;
-    gps->longitude = this->lon;
-    gps->altitude = this->alt;
+    gps->latitude = this->curr_gps_data.lat;
+    gps->longitude = this->curr_gps_data.lon;
+    gps->altitude = this->curr_gps_data.alt;
 }
 
 // Return direction vector3d for (p2->x - p1->x, altitude, p2->y - p1->y)
