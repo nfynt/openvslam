@@ -34,6 +34,7 @@ void global_optimization_module::set_tracking_module(tracking_module* tracker) {
 void global_optimization_module::set_mapping_module(mapping_module* mapper) {
     mapper_ = mapper;
     loop_bundle_adjuster_->set_mapping_module(mapper);
+    global_gps_optimizer_->set_mapping_module(mapper);
 }
 
 void global_optimization_module::enable_loop_detector() {
@@ -101,9 +102,11 @@ void global_optimization_module::run() {
         loop_detector_->set_current_keyframe(cur_keyfrm_);
 
 		//NFYNT
-		/*if (cur_keyfrm_->id_ > 10) {
-            align_to_gps_priors();
-        }*/
+		if (cur_keyfrm_->id_ %50 == 0) {
+			//Test for gps map scaling after every 50th keyframe
+//            align_to_gps_priors();
+            global_gps_optimizer_->test_map_scale_factor();
+        }
 
         // detect some loop candidate with BoW
         if (!loop_detector_->detect_loop_candidates()) {

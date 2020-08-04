@@ -15,14 +15,14 @@ milliseconds time_sync::is_gps_caught_up_video() {
     if (time_sync::gps_timestamp > time_sync::video_timestamp)
         return time_sync::gps_timestamp - time_sync::video_timestamp;
     else
-        return time_sync::video_timestamp - time_sync::gps_timestamp;
+        return milliseconds(0);
 }
 
 milliseconds time_sync::is_video_caught_up_gps() {
     if (time_sync::gps_timestamp < time_sync::video_timestamp)
         return time_sync::video_timestamp - time_sync::gps_timestamp;
     else
-        return time_sync::gps_timestamp - time_sync::video_timestamp;
+        return milliseconds(0);
 }
 
 

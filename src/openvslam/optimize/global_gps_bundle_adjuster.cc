@@ -8,6 +8,8 @@
 #include "openvslam/optimize/internal/gnss_measurement_edge.h"
 #include "openvslam/util/converter.h"
 
+#include "openvslam/mapping_module.h"
+
 #include <g2o/core/solver.h>
 #include <g2o/core/block_solver.h>
 #include <g2o/core/sparse_optimizer.h>
@@ -30,9 +32,26 @@ global_gps_bundle_adjuster::global_gps_bundle_adjuster(data::map_database* map_d
                                                        const bool use_huber_kernel)
     : map_db_(map_db), num_iter_(num_iter), nr_kfs_to_optim_(nr_kfs_to_optim), use_huber_kernel_(use_huber_kernel) {}
 
+
+void global_gps_bundle_adjuster::set_mapping_module(mapping_module* mapper)
+{
+    mapper_ = mapper;
+}
+
 void global_gps_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_global_BA,
                                           bool* const force_stop_flag) {
-    // 1. Get all keyframes and landmarks
+    
+	if (!is_map_scale_initialized || update_to_new_scale)
+	{
+        if (!start_map_scale_initalization()) {
+            std::cout << "doing global gps BA without/previous map scale initialization\n";
+        }
+        else {
+            std::cout << "Global GPS BA with scaled map init\n";
+        }
+	}
+
+	// 1. Get all keyframes and landmarks
 
     set_running();
 
@@ -106,7 +125,7 @@ void global_gps_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_g
             info_mat(2, 2) = keyfrm->get_gnss_data().uncertainity / 10.0;
             gps_edge->setInformation(info_mat);
             gps_edge->setVertex(0, keyfrm_vtx);
-            gps_edge->setParameterId(0, 0);
+            //gps_edge->setParameterId(0, 0);
 
             optimizer.addEdge(gps_edge);
         }
@@ -239,16 +258,160 @@ void global_gps_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_g
     set_finished();
 }
 
+void mean_of_eigen_vec(const eigen_alloc_vector<Vec3_t>& in_vec,
+                       Vec3_t& mean) {
+    mean.setZero();
+    for (size_t i = 0; i < in_vec.size(); ++i) {
+        for (int j = 0; j < 3; ++j) {
+            mean[j] += in_vec[i][j];
+        }
+    }
+    const double nr_els = static_cast<double>(in_vec.size());
+    for (int j = 0; j < 3; ++j) {
+        mean[j] /= nr_els;
+    }
+}
+
+bool global_gps_bundle_adjuster::start_map_scale_initalization(bool pause_mapper) {
+    
+    if (is_map_scale_initialized) {
+        return true;
+    }
+	
+    // loop all keyframes and start it
+    auto kfs = map_db_->get_all_keyframes();
+    eigen_alloc_vector<Vec3_t> gps_pos;
+    //std::vector<double> sigma;
+    eigen_alloc_vector<Vec3_t> cam_pos;
+
+    for (auto kf : kfs) {
+        const auto gps = kf->get_gnss_data();
+        gps_pos.push_back(gps.t_wgnss);
+        cam_pos.push_back(kf->get_cam_center());
+    }
+
+    // now calculate scale
+    Vec3_t mean_gps;
+    Vec3_t mean_cam;
+    mean_of_eigen_vec(gps_pos, mean_gps);
+    mean_of_eigen_vec(cam_pos, mean_cam);
+
+    double sum_gps_diff = 0.0;
+    double sum_cam_diff = 0.0;
+    for (size_t i = 0; i < gps_pos.size(); ++i) {
+        sum_gps_diff += (gps_pos[i] - mean_gps).squaredNorm();
+        sum_cam_diff += (cam_pos[i] - mean_cam).squaredNorm();
+    }
+    const double scale = std::sqrt(sum_gps_diff / sum_cam_diff);
+    const double diff_to_last = std::abs(last_scale_estimate_ - scale);
+    double total_distance_traveled = 0.0;
+    total_distance_traveled = (gps_pos[gps_pos.size() - 1] - gps_pos[0]).norm();
+    std::cout << "mean_gps: " << mean_gps.transpose() << "\nmean_cam: " << mean_cam.transpose();
+    std::cout << "Estimated scale: " << scale << std::endl;
+    std::cout << "Diff to last estimate: " << diff_to_last << std::endl;
+    std::cout << "distance_traveled: " << total_distance_traveled << "[m]" << std::endl;
+    if (diff_to_last <= 1 && total_distance_traveled < min_traveled_distance_) {
+        return false;
+    }
+    last_scale_estimate_ = scale;
+
+
+    // scale map
+    // stop all threads and scale the map
+    {
+        std::lock_guard<std::mutex> lock(mtx_thread_);
+        gps_scaling_is_running_ = true;
+    }
+
+    // stop mapping module - should already be paused from glob_optim_module
+    if (pause_mapper)
+        mapper_->request_pause();
+
+    while (!mapper_->is_paused() && !mapper_->is_terminated()) {
+        std::cout << "waiting for mapping module to pause\n";
+        std::this_thread::sleep_for(std::chrono::microseconds(50));
+    }
+    // lock the map
+    std::lock_guard<std::mutex> lock2(data::map_database::mtx_database_);
+
+    auto landmarks = map_db_->get_all_landmarks();
+    for (auto lm : landmarks) {
+        if (!lm) {
+            continue;
+        }
+        lm->set_pos_in_world(lm->get_pos_in_world() * scale);
+    }
+    for (auto kf : kfs) {
+        if (kf->id_ != 0) {
+            Mat44_t cam_pose_cw = kf->get_cam_pose();
+            cam_pose_cw.block<3, 1>(0, 3) *= scale;
+            kf->set_cam_pose(cam_pose_cw);
+        }
+    }
+    // finished scaling return to normal behaviour
+    if (pause_mapper)
+        mapper_->resume();
+
+    gps_scaling_is_running_ = false;
+    is_map_scale_initialized = true;
+    std::cout << "scaled the map with gps measurements: "<<scale<<"\n";
+    return true;
+}
+
 void global_gps_bundle_adjuster::set_running() {
-    is_running_ = true;
+    is_gba_running_ = true;
 }
 
 void global_gps_bundle_adjuster::set_finished() {
-    is_running_ = false;
+    is_gba_running_ = false;
 }
 
 bool global_gps_bundle_adjuster::is_running() {
-    return is_running_;
+    return is_gba_running_ || gps_scaling_is_running_;
+}
+
+void global_gps_bundle_adjuster::test_map_scale_factor() 
+{
+    //if (!is_map_scale_initialized) {
+    //    start_map_scale_initalization(true);
+    //    return;
+    //}
+
+    // loop all keyframes and start it
+    auto kfs = map_db_->get_all_keyframes();
+    eigen_alloc_vector<Vec3_t> gps_pos;
+    //std::vector<double> sigma;
+    eigen_alloc_vector<Vec3_t> cam_pos;
+
+    for (auto kf : kfs) {
+        const auto gps = kf->get_gnss_data();
+
+        gps_pos.push_back(gps.t_wgnss);
+        cam_pos.push_back(kf->get_cam_center());
+    }
+
+    // now calculate scale
+    Vec3_t mean_gps;
+    Vec3_t mean_cam;
+    mean_of_eigen_vec(gps_pos, mean_gps);
+    mean_of_eigen_vec(cam_pos, mean_cam);
+
+    double sum_gps_diff = 0.0;
+    double sum_cam_diff = 0.0;
+    for (size_t i = 0; i < gps_pos.size(); ++i) {
+        sum_gps_diff += (gps_pos[i] - mean_gps).squaredNorm();
+        sum_cam_diff += (cam_pos[i] - mean_cam).squaredNorm();
+    }
+    const double scale = std::sqrt(sum_gps_diff / sum_cam_diff);
+    const double diff_to_last = std::abs(last_scale_estimate_ - scale);
+    std::cout << "Estimated scale: " << scale << std::endl;
+    std::cout << "Diff to last estimate: " << diff_to_last << std::endl;
+    if (diff_to_last <= 1) {
+        update_to_new_scale= false;
+        return;
+    }
+
+	update_to_new_scale = true;
 }
 
 } // namespace optimize

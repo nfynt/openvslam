@@ -53,9 +53,10 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
                 }
                 gps_data data(stod(txt[1]), stod(txt[2]), stod(txt[3]), stod(txt[4]),
                               stod(txt[5]), stoi(txt[6]), stoi(txt[7]), stod(txt[8]), txt[9]);
-                gps_records.insert(std::pair<long,gps_data>((long)(this->timestamp - last_stamp), data));
+                data.log();
+                this->gps_records.insert(std::pair<long,gps_data>((long)(this->timestamp - last_stamp), data));
 
-				curr_gps_data = data;
+				this->curr_gps_data = data;
             }
             else {
                 spdlog::warn(msg);
@@ -77,7 +78,8 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
 
             wait_for_vid_thread = time_s->is_gps_caught_up_video();
             if (wait_for_vid_thread + sleep_time > chrono::milliseconds(10)) {
-                //spdlog::info("sleeping gps parser for: vid_w:" + to_string(wait_for_vid_thread.count()) + ", s_t: " + to_string(sleep_time.count()));
+               // spdlog::info("sleeping gps parser for: vid_w:{}\nvid_time:{}\nsleep_t: {}",
+					//wait_for_vid_thread.count(),time_s->video_timestamp.count(),sleep_time.count());
                 if (wait_for_vid_thread > sleep_time)
                     std::this_thread::sleep_for(wait_for_vid_thread);
                 else
@@ -159,9 +161,9 @@ void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
                 this->timestamp = stoll(txt[0]);
                 gps_data gdata(stod(txt[1]), stod(txt[2]), stod(txt[3]), stod(txt[4]),
                               stod(txt[5]), stoi(txt[6]), stoi(txt[7]), stod(txt[8]), txt[9]);
-                gps_records.insert(std::pair<long, gps_data>((long)(this->timestamp - last_stamp), gdata));
+                this->gps_records.insert(std::pair<long, gps_data>((long)(this->timestamp - last_stamp), gdata));
 
-                curr_gps_data = gdata;
+                this->curr_gps_data = gdata;
             }
             else {
                 spdlog::warn(msg);
@@ -184,11 +186,13 @@ void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
 
 void gps_parser::terminate_process() {
     this->terminate = true;
+    this->is_valid = false;
     spdlog::info("Terminating gps parser");
 }
 
 //update and convert new wgs84 to utm with latest value
 void gps_parser::update_gps_value(geo_utm* gps) {
+    //spdlog::info("updating with latest gps_data");
     //gps->zone = LatLonToUTMXY(gps->ref_ellipsoid_id, this->lat, this->lon, gps->x, gps->y);
     //gps->altitude = this->alt;
     gps->zone = this->curr_gps_data.zone;
@@ -196,14 +200,14 @@ void gps_parser::update_gps_value(geo_utm* gps) {
     gps->y = this->curr_gps_data.utmy;
     gps->uncertainity = this->curr_gps_data.accumulated_delta_range;
     (this->curr_gps_data.lat > 0.0) ? gps->southhemi = false : gps->southhemi = true;
-    //spdlog::info("parser: gps {},{},{}\nutm: {}", this->lat, this->lon, this->alt, gps->value());
 }
 
 void gps_parser::get_gps_value(geo_utm* interp_gps, long t_stamp)
 {
-	if (t_stamp >= this->timestamp || this->gps_records.size()<2) {
+	if (t_stamp >= prev(this->gps_records.end())->first || this->gps_records.size()<3) {
         //video thread ahead of gps
         update_gps_value(interp_gps);
+        //spdlog::info("interp gps: {}", interp_gps->value());
         return;
 	}
 
