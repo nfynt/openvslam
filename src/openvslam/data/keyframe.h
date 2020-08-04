@@ -293,6 +293,9 @@ public:
     //get gnss data
     gnss::data get_gnss_data();
 
+	//updates the new gnss position in gnss data
+    void update_t_wgnss_measurement(Eigen::Vector3d t_wgnss);
+
     //add or update gnss measurement of this keyframe
     //void add_gnss_measurement(Eigen::Vector3d* t_gnss, double* var_gnss);
 

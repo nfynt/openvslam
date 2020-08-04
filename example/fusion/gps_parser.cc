@@ -53,7 +53,7 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
                 }
                 gps_data data(stod(txt[1]), stod(txt[2]), stod(txt[3]), stod(txt[4]),
                               stod(txt[5]), stoi(txt[6]), stoi(txt[7]), stod(txt[8]), txt[9]);
-                data.log();
+                //data.log();
                 this->gps_records.insert(std::pair<long,gps_data>((long)(this->timestamp - last_stamp), data));
 
 				this->curr_gps_data = data;

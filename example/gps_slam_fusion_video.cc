@@ -31,6 +31,8 @@ std::thread gps_th;
 std::ofstream gps_out;
 // current camera pose in cw: world -> camera (in SLAM CS)
 openvslam::Mat44_t camera_pose;
+// transformed gnss measurement GNSS -> slam world
+Eigen::Vector3d t_wgnss;
 gps_parser* gps;
 // measured gnss UTM (universal time mercator)
 geo_utm* curr_geo;
@@ -139,7 +141,6 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
 
             if (!img.empty()) {
                 gps->get_gps_value(curr_geo, timestamp * 1000);
-                Eigen::Vector3d t_wgnss;
                 if (gps_initialized)
                     t_wgnss = R_wgnss * (curr_geo->get_vector() - start_geo->get_vector());
                 else
@@ -263,11 +264,11 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
         gps->update_gps_value(curr_geo);
 
         if (curr_geo->sq_distance_from(start_geo) > 100.0 || SLAM->get_current_nr_kfs() > 30) {
-            //the sensor has roughly moved 20 meters from start or 30 keyframes have been added
+            //the sensor has roughly moved 10 meters from start or 30 keyframes have been added
             //- good enough to initialize?
 
             //Estimate the camera position in SLAM world cs by inverse tranformation
-            Eigen::Vector3d w_pos = camera_pose.block(0, 0, 3, 3).transpose() * camera_pose.block(0, 3, 3, 1);
+            Eigen::Vector3d w_pos = -camera_pose.block(0, 0, 3, 3).transpose() * camera_pose.block(0, 3, 3, 1);
 
             w_pos(1, 0) = 0; //ignore y position: assumed to be in same direction as UTM alt
 
@@ -302,7 +303,7 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
                       << R_wgnss << "\n rotation angle: " << angle << "\n";
 
             gps_initialized = true;
-            SLAM->set_gps_initialized();
+            SLAM->set_gps_initialized(R_wgnss);
 
             //last_geo->copy_from(curr_geo);
 
@@ -333,15 +334,15 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
             }
 
             //Get camera position in SLAM world and convert to GNSS CS
-            Eigen::Vector3d pos_gnss = R_wgnss.transpose() * (camera_pose.block(0, 0, 3, 3).transpose() * camera_pose.block(0, 3, 3, 1));
+            Eigen::Vector3d pos_gnss = R_wgnss.transpose() * (-camera_pose.block(0, 0, 3, 3).transpose() * camera_pose.block(0, 3, 3, 1));
 
             //Get attitude information
             Eigen::Quaterniond rot_q(camera_pose.block<3, 3>(0, 0));
             auto rot_qn = R_wgnss.transpose() * rot_q.toRotationMatrix();
             auto euler = rot_qn.eulerAngles(0, 1, 2);
 
-            spdlog::info("UTM sq distance: {}\ngnss pose: {}\nvid_time: {}\ngnss_time: {}",
-                         curr_geo->sq_distance_from(start_geo), pos_gnss.transpose(), time_s->video_timestamp.count(), time_s->gps_timestamp.count());
+            spdlog::info("UTM sq distance: {}\nt_wgnss: {}\ngnss pose: {}\nvid_time: {}\tgnss_time: {}",
+                         curr_geo->sq_distance_from(start_geo),t_wgnss.transpose(), pos_gnss.transpose(), time_s->video_timestamp.count(), time_s->gps_timestamp.count());
 
             pos_gnss += Eigen::Vector3d(start_geo->x, 0, start_geo->y);
             geo_utm loc(pos_gnss.x(), pos_gnss.z(), curr_geo->zone);

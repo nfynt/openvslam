@@ -49,6 +49,9 @@ public:
     //check if map scale needs to be recalculated
     void test_map_scale_factor();
 
+    //! align frame/keyframe t_wgnss upon gps_initialization
+    void align_gps_priors(Eigen::Matrix3d R_wgnss);
+
 private:
     void set_running();
     void set_finished();
@@ -92,6 +95,7 @@ private:
 
     //! mutex for access to pause procedure
     mutable std::mutex mtx_thread_;
+
 };
 
 } // namespace optimize

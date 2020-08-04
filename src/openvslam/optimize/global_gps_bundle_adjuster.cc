@@ -22,6 +22,7 @@
 #include <g2o/types/slam3d/parameter_se3_offset.h>
 
 #include <iostream>
+#include <spdlog/spdlog.h>
 
 namespace openvslam {
 namespace optimize {
@@ -32,26 +33,22 @@ global_gps_bundle_adjuster::global_gps_bundle_adjuster(data::map_database* map_d
                                                        const bool use_huber_kernel)
     : map_db_(map_db), num_iter_(num_iter), nr_kfs_to_optim_(nr_kfs_to_optim), use_huber_kernel_(use_huber_kernel) {}
 
-
-void global_gps_bundle_adjuster::set_mapping_module(mapping_module* mapper)
-{
+void global_gps_bundle_adjuster::set_mapping_module(mapping_module* mapper) {
     mapper_ = mapper;
 }
 
 void global_gps_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_global_BA,
                                           bool* const force_stop_flag) {
-    
-	if (!is_map_scale_initialized || update_to_new_scale)
-	{
+    if (!is_map_scale_initialized || update_to_new_scale) {
         if (!start_map_scale_initalization()) {
             std::cout << "doing global gps BA without/previous map scale initialization\n";
         }
         else {
             std::cout << "Global GPS BA with scaled map init\n";
         }
-	}
+    }
 
-	// 1. Get all keyframes and landmarks
+    // 1. Get all keyframes and landmarks
 
     set_running();
 
@@ -114,8 +111,8 @@ void global_gps_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_g
         optimizer.addVertex(keyfrm_vtx);
 
         // add gps priors to test
-        //if (keyfrm->has_gnss_measurement()) 
-		{
+        //if (keyfrm->has_gnss_measurement())
+        {
             auto gps_edge = new internal::gnss_measurement_edge();
             Vec3_t obs = keyfrm->get_gnss_data().t_wgnss;
             gps_edge->setMeasurement(obs);
@@ -273,11 +270,10 @@ void mean_of_eigen_vec(const eigen_alloc_vector<Vec3_t>& in_vec,
 }
 
 bool global_gps_bundle_adjuster::start_map_scale_initalization(bool pause_mapper) {
-    
     if (is_map_scale_initialized) {
         return true;
     }
-	
+
     // loop all keyframes and start it
     auto kfs = map_db_->get_all_keyframes();
     eigen_alloc_vector<Vec3_t> gps_pos;
@@ -314,7 +310,6 @@ bool global_gps_bundle_adjuster::start_map_scale_initalization(bool pause_mapper
         return false;
     }
     last_scale_estimate_ = scale;
-
 
     // scale map
     // stop all threads and scale the map
@@ -354,7 +349,7 @@ bool global_gps_bundle_adjuster::start_map_scale_initalization(bool pause_mapper
 
     gps_scaling_is_running_ = false;
     is_map_scale_initialized = true;
-    std::cout << "scaled the map with gps measurements: "<<scale<<"\n";
+    std::cout << "scaled the map with gps measurements: " << scale << "\n";
     return true;
 }
 
@@ -370,8 +365,7 @@ bool global_gps_bundle_adjuster::is_running() {
     return is_gba_running_ || gps_scaling_is_running_;
 }
 
-void global_gps_bundle_adjuster::test_map_scale_factor() 
-{
+void global_gps_bundle_adjuster::test_map_scale_factor() {
     //if (!is_map_scale_initialized) {
     //    start_map_scale_initalization(true);
     //    return;
@@ -407,11 +401,41 @@ void global_gps_bundle_adjuster::test_map_scale_factor()
     std::cout << "Estimated scale: " << scale << std::endl;
     std::cout << "Diff to last estimate: " << diff_to_last << std::endl;
     if (diff_to_last <= 1) {
-        update_to_new_scale= false;
+        update_to_new_scale = false;
         return;
     }
 
-	update_to_new_scale = true;
+    update_to_new_scale = true;
+}
+
+void global_gps_bundle_adjuster::align_gps_priors(Eigen::Matrix3d R_wgnss) {
+    // stop all threads and adjust keyframe t_wgnss priors
+    {
+        std::lock_guard<std::mutex> lock(mtx_thread_);
+        gps_scaling_is_running_ = true;
+    }
+
+    // stop mapping module
+    mapper_->request_pause();
+
+    while (!mapper_->is_paused() && !mapper_->is_terminated()) {
+        std::cout << "waiting for mapping module to pause\n";
+        std::this_thread::sleep_for(std::chrono::microseconds(50));
+    }
+    // lock the map
+    std::lock_guard<std::mutex> lock2(data::map_database::mtx_database_);
+
+    // loop all keyframes and start it
+    auto kfs = map_db_->get_all_keyframes();
+
+    for (auto kf : kfs) {
+        const auto gps = kf->get_gnss_data();
+
+        kf->update_t_wgnss_measurement(R_wgnss * gps.t_wgnss);
+    }
+
+    mapper_->resume();
+    spdlog::info("previous t_wgnss measurement aligned!");
 }
 
 } // namespace optimize

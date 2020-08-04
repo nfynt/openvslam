@@ -157,7 +157,7 @@ public:
     //! request global optim
     void request_global_GPS_optim();
 
-	void set_gps_initialized() const;
+	void set_gps_initialized(Eigen::Matrix3d R_wgnss) const;
 
 	void set_gps_data_is_used();
 	bool is_gps_data_used();

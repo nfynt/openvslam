@@ -445,6 +445,10 @@ gnss::data keyframe::get_gnss_data() {
     return gnss_data_;
 }
 
+void keyframe::update_t_wgnss_measurement(Eigen::Vector3d t_wgnss) {
+    gnss_data_.t_wgnss = t_wgnss;
+}
+
 //void keyframe::add_gnss_measurement(Eigen::Vector3d* t_g, double* var_gnss) {
 //    this->t_gnss = *t_g;
 //    this->gnss_variance = *var_gnss;

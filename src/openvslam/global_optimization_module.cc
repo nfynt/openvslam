@@ -104,7 +104,6 @@ void global_optimization_module::run() {
 		//NFYNT
 		if (cur_keyfrm_->id_ %50 == 0) {
 			//Test for gps map scaling after every 50th keyframe
-//            align_to_gps_priors();
             global_gps_optimizer_->test_map_scale_factor();
         }
 
@@ -500,19 +499,6 @@ void global_optimization_module::abort_loop_BA() {
 //------------------------------------------------------------
 //NFYNT additions
 
-
-void global_optimization_module::align_to_gps_priors() {
-    if (!GPS_is_initialized_) {
-        spdlog::info("Aligning to GPS measurements");
-    }
-    /*if (gps_initializer_->start_map_scale_initalization()) {
-        if (gps_initializer_->start_map_rotation_initalization()) {
-            run_global_GPS_optim_ = true;
-            GPS_is_initialized_ = true;
-        }
-    }*/
-}
-
 void global_optimization_module::run_global_GPS_optim() {
     if (!GPS_is_initialized_) {
         spdlog::info("GPS is not initialized yet... skipping global GPS optim");
@@ -538,8 +524,9 @@ bool global_optimization_module::gps_optim_is_running() const {
     return global_gps_optimizer_->is_running();
 }
 
-void global_optimization_module::set_gps_initialized() {
+void global_optimization_module::set_gps_initialized(Eigen::Matrix3d R_wgnss) {
     GPS_is_initialized_ = true;
+    global_gps_optimizer_->align_gps_priors(R_wgnss);
 }
 
 bool global_optimization_module::is_gps_initialized() const {

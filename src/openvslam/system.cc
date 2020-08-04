@@ -351,8 +351,8 @@ void system::resume_other_threads() const {
 // NFYNT methods
 
 //! Global GPS optim is running
-void system::set_gps_initialized() const {
-    return global_optimizer_->set_gps_initialized();
+void system::set_gps_initialized(Eigen::Matrix3d R_wgnss) const {
+    return global_optimizer_->set_gps_initialized(R_wgnss);
 }
 
 //! Global GPS optim is running

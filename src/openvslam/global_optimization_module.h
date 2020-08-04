@@ -115,7 +115,7 @@ public:
     void run_global_GPS_optim();
 
     //! set gps initialized
-    void set_gps_initialized();
+    void set_gps_initialized(Eigen::Matrix3d R_wgnss);
     //! is gps initialized
     bool is_gps_initialized() const;
 
@@ -236,9 +236,6 @@ private:
 	//NFYNT additions
 
 	
-    //! perform pose graph optimization using gps priors
-    void align_to_gps_priors();
-
     //! large global bundle adjuster
     std::unique_ptr<optimize::global_gps_bundle_adjuster> global_gps_optimizer_ = nullptr;
     //! to tell the local BA that GPS is initialized
