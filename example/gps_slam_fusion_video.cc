@@ -184,7 +184,7 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
                     std::this_thread::sleep_for(std::chrono::microseconds(10));
                 }
             }*/
-            // wait until the loop BA is finished
+            // wait until the global GPS BA is finished
             while (SLAM->global_GPS_optim_is_running()) {
                 std::this_thread::sleep_for(std::chrono::microseconds(250));
             }
@@ -261,10 +261,9 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
 
     //estimate transformation between SLAM world and GPS based on distance
     while (!gps_initialized && slam_gps_running) {
-        gps->update_gps_value(curr_geo);
 
-        if (curr_geo->sq_distance_from(start_geo) > 100.0 || SLAM->get_current_nr_kfs() > 30) {
-            //the sensor has roughly moved 10 meters from start or 30 keyframes have been added
+        if (curr_geo->sq_distance_from(start_geo) > 225.0 || SLAM->get_current_nr_kfs() > 30) {
+            //the sensor has roughly moved 15 meters from start or 30 keyframes have been added
             //- good enough to initialize?
 
             //Estimate the camera position in SLAM world cs by inverse tranformation
@@ -329,6 +328,7 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
             //!curr_geo->equals(last_geo) &&
             //performs global gps BA after every 30 new keyframes
             if (curr_nr_kfs - last_gba_frame_cnt >= 30) {
+                spdlog::info("requesting GPS GBA");
                 SLAM->request_global_GPS_optim();
                 last_gba_frame_cnt = curr_nr_kfs;
             }
@@ -348,7 +348,10 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
             geo_utm loc(pos_gnss.x(), pos_gnss.z(), curr_geo->zone);
 
 			gps_out = std::ofstream(crr_gps_path, std::ios::app);
-            gps_out << loc.convert_utm_to_gps(curr_geo->altitude).value() << "," << euler(0) << "," << euler(1) << "," << euler(2) << "\n";
+            //gps_out << loc.convert_utm_to_gps(curr_geo->altitude).value() << "," << euler(0) << "," << euler(1) << "," << euler(2) << "\n";
+            gps_out << curr_geo->convert_utm_to_gps(curr_geo->altitude).value() << ","
+                    << loc.convert_utm_to_gps(curr_geo->altitude).value() << ","
+                    << euler(0) << "," << euler(1) << "," << euler(2) << "\n";
             gps_out.close();
         }
         const auto tp_2 = std::chrono::steady_clock::now();

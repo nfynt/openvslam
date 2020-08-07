@@ -54,16 +54,15 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
                 gps_data data(stod(txt[1]), stod(txt[2]), stod(txt[3]), stod(txt[4]),
                               stod(txt[5]), stoi(txt[6]), stoi(txt[7]), stod(txt[8]), txt[9]);
                 //data.log();
-                this->gps_records.insert(std::pair<long,gps_data>((long)(this->timestamp - last_stamp), data));
+                this->gps_records.insert(std::pair<long, gps_data>((long)(this->timestamp - last_stamp), data));
 
-				this->curr_gps_data = data;
+                this->curr_gps_data = data;
             }
             else {
                 spdlog::warn(msg);
                 std::this_thread::sleep_for(std::chrono::seconds(1));
                 continue;
             }
-
 
             const auto tp_2 = std::chrono::steady_clock::now();
             // double (s)
@@ -78,8 +77,8 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
 
             wait_for_vid_thread = time_s->is_gps_caught_up_video();
             if (wait_for_vid_thread + sleep_time > chrono::milliseconds(10)) {
-               // spdlog::info("sleeping gps parser for: vid_w:{}\nvid_time:{}\nsleep_t: {}",
-					//wait_for_vid_thread.count(),time_s->video_timestamp.count(),sleep_time.count());
+                // spdlog::info("sleeping gps parser for: vid_w:{}\nvid_time:{}\nsleep_t: {}",
+                //wait_for_vid_thread.count(),time_s->video_timestamp.count(),sleep_time.count());
                 if (wait_for_vid_thread > sleep_time)
                     std::this_thread::sleep_for(wait_for_vid_thread);
                 else
@@ -97,10 +96,9 @@ void gps_parser::start_reading(openvslam::util::time_sync* time_s) {
 }
 
 void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
-    
     this->terminate = false;
 
-	string msg;
+    string msg;
     string txt[10];
     int ind;
     sf::TcpSocket socket;
@@ -109,7 +107,7 @@ void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
     //initialize connection with GPS server
     status = socket.connect(this->ip_addr, this->port_num);
     if (status != sf::Socket::Done) {
-        spdlog::critical("Failed to initialize TCP connection. server: {}:{}", this->ip_addr,this->port_num);
+        spdlog::critical("Failed to initialize TCP connection. server: {}:{}", this->ip_addr, this->port_num);
         return;
     }
 
@@ -117,24 +115,23 @@ void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
     std::size_t received;
     long long last_stamp = 0;
 
-	// TCP socket:
+    // TCP socket:
     while (true) {
         auto tp_1 = std::chrono::steady_clock::now();
         if (this->terminate) {
             socket.disconnect();
             break;
-		}
+        }
 
         if (socket.receive(data, 300, received) != sf::Socket::Done) {
             this->terminate = true;
-            spdlog::critical("TCP: error receiving data. socket.error_code: {}",socket.Error);
+            spdlog::critical("TCP: error receiving data. socket.error_code: {}", socket.Error);
             //?break;
         }
         else {
             msg = string(data);
             //spdlog::info("TCP: " + msg);
             msg = msg.substr(msg.find_first_of('(') + 1, msg.find_first_of(')') - msg.find_first_of('(') - 1);
-            
 
             if (this->terminate)
                 break;
@@ -147,22 +144,21 @@ void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
             this->is_valid = false;
             ind = 0;
 
-			while (msg_stream.good())
-			{
+            while (msg_stream.good()) {
                 getline(msg_stream, txt[ind], ',');
                 ind++;
                 if (ind > 9) {
                     this->is_valid = true;
                     break;
                 }
-			}
+            }
 
             if (this->is_valid) {
                 this->timestamp = stoll(txt[0]);
                 gps_data gdata(stod(txt[1]), stod(txt[2]), stod(txt[3]), stod(txt[4]),
-                              stod(txt[5]), stoi(txt[6]), stoi(txt[7]), stod(txt[8]), txt[9]);
+                               stod(txt[5]), stoi(txt[6]), stoi(txt[7]), stod(txt[8]), txt[9]);
                 this->gps_records.insert(std::pair<long, gps_data>((long)(this->timestamp - last_stamp), gdata));
-
+                //gdata.log();
                 this->curr_gps_data = gdata;
             }
             else {
@@ -181,7 +177,7 @@ void gps_parser::connect_and_read(openvslam::util::time_sync* time_s) {
             last_stamp = this->timestamp;
         }
         std::this_thread::sleep_for(std::chrono::seconds(1));
-    }//end of while loop
+    } //end of while loop
 }
 
 void gps_parser::terminate_process() {
@@ -202,31 +198,29 @@ void gps_parser::update_gps_value(geo_utm* gps) {
     (this->curr_gps_data.lat > 0.0) ? gps->southhemi = false : gps->southhemi = true;
 }
 
-void gps_parser::get_gps_value(geo_utm* interp_gps, long t_stamp)
-{
-	if (t_stamp >= prev(this->gps_records.end())->first || this->gps_records.size()<3) {
+void gps_parser::get_gps_value(geo_utm* interp_gps, long t_stamp) {
+    if (t_stamp >= prev(this->gps_records.end())->first || this->gps_records.size() < 3) {
         //video thread ahead of gps
         update_gps_value(interp_gps);
         //spdlog::info("interp gps: {}", interp_gps->value());
         return;
-	}
+    }
 
-	for (auto it = this->gps_records.rbegin();it!=this->gps_records.rend();++it)
-	{
+    for (auto it = this->gps_records.rbegin(); it != this->gps_records.rend(); ++it) {
         if (it->first > t_stamp)
             continue;
 
-		long dt = prev(it)->first - it->first;
+        long dt = prev(it)->first - it->first;
         double dx = prev(it)->second.utmx - it->second.utmx;
         double dy = prev(it)->second.utmy - it->second.utmy;
 
-		//lerp between utm
+        //lerp between utm
         interp_gps->x = it->second.utmx + (t_stamp - it->first) / dt * dx;
         interp_gps->y = it->second.utmy + (t_stamp - it->first) / dt * dy;
 
         interp_gps->uncertainity = it->second.accumulated_delta_range;
-		break;
-	}
+        break;
+    }
 }
 
 long gps_parser::get_last_timestamp() {
