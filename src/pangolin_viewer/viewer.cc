@@ -92,6 +92,16 @@ void viewer::run() {
         cv::imshow(frame_viewer_name_, frame_publisher_->draw_frame());
         cv::waitKey(interval_ms_);
 
+		// NFYNT. check to estimate GNSS-VSLAM transformation
+
+		if (*menu_init_gnss_trans_){
+			//send trigger to estimate
+
+            system_->request_gnss_trans_init();
+			//allow initialization multiple times
+            *menu_init_gnss_trans_ = false;
+		}
+
         // 3. state transition
 
         if (*menu_reset_) {
@@ -128,7 +138,8 @@ void viewer::create_menu_panel() {
     menu_show_lms_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Show Landmarks", true, true));
     menu_show_local_map_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Show Local Map", true, true));
     menu_show_graph_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Show Graph", true, true));
-    menu_show_gps_data_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Show GPS", true, true));
+    menu_show_gnss_data_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Show GNSS", true, true));
+    menu_init_gnss_trans_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Init GNSS trans", false, false));
     menu_mapping_mode_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Mapping", mapping_mode_, true));
     menu_loop_detection_mode_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Loop Detection", loop_detection_mode_, true));
     menu_pause_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Pause", false, true));
@@ -221,7 +232,7 @@ void viewer::draw_keyframes() {
             draw_camera(keyfrm->get_cam_pose_inv(), w);
         }
     }
-    if (*menu_show_gps_data_) {
+    if (*menu_show_gnss_data_) {
         glColor3fv(cs_.kf_line_.data());
         for (const auto keyfrm : keyfrms) {
             if (!keyfrm || keyfrm->will_be_erased()) {
@@ -231,9 +242,9 @@ void viewer::draw_keyframes() {
             glColor3fv(cs_.gps_rgb_.data());
             glBegin(GL_POINTS);
 
-            openvslam::Vec3_t pos_w = keyfrm->get_gnss_data().t_wgnss;
-            pos_w /= 1.0;
-            glVertex3fv(pos_w.cast<float>().eval().data());
+            openvslam::Vec3_t pos_c = keyfrm->get_gnss_data().t_wgnss;
+            pos_c /= 1.0;
+            glVertex3fv(pos_c.cast<float>().eval().data());
 
             glEnd();
         }

@@ -350,6 +350,19 @@ void system::resume_other_threads() const {
 //-------------------------------------------------------------------
 // NFYNT methods
 
+void system::add_gnss_init_callback(void(*func)())
+{
+    gnss_init_callbacks.push_back(func);
+}
+
+void system::request_gnss_trans_init()
+{
+	//raise callback for all the registered methods
+    for(auto var : gnss_init_callbacks) {
+        var();
+    }
+}
+
 //! Global GPS optim is running
 void system::set_gps_initialized(Eigen::Matrix3d R_wgnss) const {
     return global_optimizer_->set_gps_initialized(R_wgnss);

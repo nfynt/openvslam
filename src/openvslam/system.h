@@ -10,6 +10,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <vector>
 
 #include <opencv2/core/core.hpp>
 
@@ -148,6 +149,12 @@ public:
     //-----------------------------------------------
     //NFYNT updates
 
+	//add callback for GNSS initialization triggered from UI
+	void add_gnss_init_callback(void (*func)());
+
+    //! Request to gnss transformation intialization
+    void request_gnss_trans_init();
+
     //! Global GPS optim is running
     bool global_GPS_optim_is_running() const;
 
@@ -157,10 +164,10 @@ public:
     //! request global optim
     void request_global_GPS_optim();
 
-	void set_gps_initialized(Eigen::Matrix3d R_wgnss) const;
+    void set_gps_initialized(Eigen::Matrix3d R_wgnss) const;
 
-	void set_gps_data_is_used();
-	bool is_gps_data_used();
+    void set_gps_data_is_used();
+    bool is_gps_data_used();
 
     //SLAM tracking state is active
     bool is_tracking() const;
@@ -236,11 +243,11 @@ private:
     //! mutex for flags of enable/disable loop detector
     mutable std::mutex mtx_loop_detector_;
 
+    //------------------------------------
+    //NFYNT additions
 
-	//------------------------------------
-	//NFYNT additions
-
-	bool is_gps_used = false;
+    bool is_gps_used = false;
+    vector<void (*)()> gnss_init_callbacks;
 };
 
 } // namespace openvslam

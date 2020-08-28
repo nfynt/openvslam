@@ -75,14 +75,14 @@ void global_gps_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_g
 
     // 2. optimizerを構築
 
-    auto linear_solver = ::g2o::make_unique<::g2o::LinearSolverCSparse<::g2o::BlockSolver_6_3::PoseMatrixType>>();
-    auto block_solver = ::g2o::make_unique<::g2o::BlockSolver_6_3>(std::move(linear_solver));
-    auto algorithm = new ::g2o::OptimizationAlgorithmLevenberg(std::move(block_solver));
+    auto linear_solver = g2o::make_unique<g2o::LinearSolverCSparse<g2o::BlockSolver_6_3::PoseMatrixType>>();
+    auto block_solver = g2o::make_unique<g2o::BlockSolver_6_3>(std::move(linear_solver));
+    auto algorithm = new g2o::OptimizationAlgorithmLevenberg(std::move(block_solver));
 
     g2o::SparseOptimizer optimizer;
     optimizer.setAlgorithm(algorithm);
 
-    optimizer.setVerbose(true);
+    //optimizer.setVerbose(true);
 
     if (force_stop_flag) {
         optimizer.setForceStopFlag(force_stop_flag);
@@ -117,11 +117,12 @@ void global_gps_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_g
             Vec3_t obs = keyfrm->get_gnss_data().t_wgnss;
             gps_edge->setMeasurement(obs);
             Mat33_t info_mat = Mat33_t::Identity();
-            info_mat(0, 0) = keyfrm->get_gnss_data().uncertainity / 10.0;
-            info_mat(1, 1) = keyfrm->get_gnss_data().uncertainity / 100.0; //high variance for altitude
-            info_mat(2, 2) = keyfrm->get_gnss_data().uncertainity / 10.0;
+            info_mat(0, 0) = 10.0/keyfrm->get_gnss_data().uncertainity;
+            info_mat(1, 1) = 1.0/keyfrm->get_gnss_data().uncertainity; //high variance for altitude
+            info_mat(2, 2) = 10.0/keyfrm->get_gnss_data().uncertainity;
             gps_edge->setInformation(info_mat);
             gps_edge->setVertex(0, keyfrm_vtx);
+            gps_edge->setRobustKernel(new g2o::RobustKernelHuber());
             //gps_edge->setParameterId(0, 0);
 
             optimizer.addEdge(gps_edge);
@@ -270,9 +271,9 @@ void mean_of_eigen_vec(const eigen_alloc_vector<Vec3_t>& in_vec,
 }
 
 bool global_gps_bundle_adjuster::start_map_scale_initalization(bool pause_mapper) {
-    if (is_map_scale_initialized) {
-        return true;
-    }
+    //if (is_map_scale_initialized) {
+    //    return true;
+    //}
 
     // loop all keyframes and start it
     auto kfs = map_db_->get_all_keyframes();
@@ -349,7 +350,7 @@ bool global_gps_bundle_adjuster::start_map_scale_initalization(bool pause_mapper
 
     gps_scaling_is_running_ = false;
     is_map_scale_initialized = true;
-    std::cout << "scaled the map with gps measurements: " << scale << "\n";
+    std::cout << "\n\nscaled the map with gps measurements: " << scale << "\n";
     return true;
 }
 
@@ -366,10 +367,6 @@ bool global_gps_bundle_adjuster::is_running() {
 }
 
 void global_gps_bundle_adjuster::test_map_scale_factor() {
-    //if (!is_map_scale_initialized) {
-    //    start_map_scale_initalization(true);
-    //    return;
-    //}
 
     // loop all keyframes and start it
     auto kfs = map_db_->get_all_keyframes();
@@ -431,10 +428,11 @@ void global_gps_bundle_adjuster::align_gps_priors(Eigen::Matrix3d R_wgnss) {
     for (auto kf : kfs) {
         const auto gps = kf->get_gnss_data();
 
-        kf->update_t_wgnss_measurement(R_wgnss * gps.t_wgnss);
+        kf->update_t_wgnss_measurement(R_wgnss * curr_R_wgnss.transpose() * gps.t_wgnss);
     }
 
     mapper_->resume();
+    curr_R_wgnss = R_wgnss;
     spdlog::info("previous t_wgnss measurement aligned!");
 }
 

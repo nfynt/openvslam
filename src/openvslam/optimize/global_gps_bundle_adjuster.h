@@ -96,6 +96,9 @@ private:
     //! mutex for access to pause procedure
     mutable std::mutex mtx_thread_;
 
+	// current estimate gnss->world transformation matrix
+	Eigen::Matrix3d curr_R_wgnss = Eigen::Matrix3d::Identity();
+
 };
 
 } // namespace optimize
