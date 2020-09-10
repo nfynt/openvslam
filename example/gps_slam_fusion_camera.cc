@@ -82,6 +82,15 @@ inline bool exists(const std::string& name) {
     return std::experimental::filesystem::exists(name);
 }
 
+bool init_gnss_vslam_transformation();
+//gnss init callback
+void request_gnss_init() {
+    if (init_gnss_vslam_transformation())
+        spdlog::info("\n\nGNSS->VSLAM transformation success");
+    else
+        spdlog::info("\n\nGNSS->VSLAM transformation not successful");
+}
+
 
 
 // SLAM run in parallel thread
@@ -110,6 +119,9 @@ void run_slam(const std::string& vocab_path, const std::shared_ptr<openvslam::co
     //set time_sync
     //SLAM->set_time_sync_ptr(time_s);
     SLAM->set_gps_data_is_used();
+
+    //set gnss init callback
+    SLAM->add_gnss_init_callback(&request_gnss_init);
 
     // startup the SLAM process with mapping settings
     if (map_db_path.empty() || !exists(map_db_path)) {
@@ -246,6 +258,56 @@ void run_gps(string ip, int port) {
     slam_gps_running = false;
 }
 
+bool init_gnss_vslam_transformation() {
+    //Estimate the camera position in SLAM world cs by inverse tranformation
+    Eigen::Vector3d w_pos = -camera_pose.block(0, 0, 3, 3).transpose() * camera_pose.block(0, 3, 3, 1);
+    Eigen::Vector3d gnss_pos = gps_parser::get_direction_vector(*start_geo, *curr_geo);
+
+    //ignore y position: assumed to be in same direction as UTM alt
+    w_pos(1) = 0;
+    gnss_pos(1) = 0;
+
+    spdlog::info("intializing GNSS transform\ngps dist: {}",
+                 curr_geo->sq_distance_from(start_geo));
+    std::cout << "\nCamera pos " << w_pos.transpose()
+              << "\nGPS pos " << gnss_pos.transpose() << std::endl;
+
+    //Normalize the world and gps direction vector
+    w_pos.normalize();
+    gnss_pos.normalize();
+
+    spdlog::info("Coordinate Basis\nWorld: {}\nGPS {}", w_pos.transpose(), gnss_pos.transpose());
+    //Estimate the rotation matrix to transform from w_pos to gps_pos
+
+    Eigen::Vector3d rotation_axis = gnss_pos.cross(w_pos); //ideally will be aligned along Y-axis (UP) which is assumed to be commond between GPS and SLAM
+    rotation_axis.normalize();
+    double angle = std::acos(gnss_pos.dot(w_pos));
+
+    // degenrate case when vector a and b point's in opposite direction
+    if (cos(angle) == -1) {
+        spdlog::info("degenerate transformation case, will retry");
+        return false;
+    }
+
+    Eigen::Quaternion<double> t_quat(Eigen::AngleAxisd(angle, rotation_axis));
+    t_quat.normalize();
+    R_wgnss = t_quat.toRotationMatrix();
+
+    std::cout << "Rotation matrix (world->gps)\n"
+              << R_wgnss << "\n rotation angle: " << angle
+              << "\nrotation axis: " << rotation_axis.transpose() << "\n";
+
+    gps_initialized = true;
+    SLAM->set_gps_initialized(R_wgnss);
+
+    //last_geo->copy_from(curr_geo);
+
+    SLAM->request_global_GPS_optim();
+    last_gba_frame_cnt = SLAM->get_current_nr_kfs();
+
+    return true;
+}
+
 //Launch GPS SLAM fusion thread - outputs the correction gps
 //updates the curr_geo to be used in SLAM thread
 void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
@@ -264,64 +326,17 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
 
     //estimate transformation between SLAM world and GPS based on distance
     while (!gps_initialized && slam_gps_running) {
-
-        if (slam_tracking && (curr_geo->sq_distance_from(start_geo) > 400.0 || SLAM->get_current_nr_kfs() > 30)) {
-            //the sensor has roughly moved 15 meters from start or 30 keyframes have been added
-            //- good enough to initialize?
-
-            //Estimate the camera position in SLAM world cs
-            Eigen::Vector3d w_pos = -camera_pose.block(0, 0, 3, 3).transpose() * camera_pose.block(0, 3, 3, 1);
-
-            w_pos(1, 0) = 0; //ignore y position: assumed to be in same direction as UTM alt
-
-            Eigen::Vector3d gnss_pos = gps_parser::get_direction_vector(*start_geo, *curr_geo);
-            spdlog::info("intializing GNSS transform\ngps dist: {}",
-                         curr_geo->sq_distance_from(start_geo));
-            std::cout << "\nCamera pos " << w_pos.transpose()
-                      << "\nGPS pos " << gnss_pos.transpose() << std::endl;
-
-            //Normalize the world and gps direction vector
-            w_pos.normalize();
-            gnss_pos.normalize();
-
-            spdlog::info("Coordinate Basis\nWorld: {}\nGPS {}", w_pos.transpose(), gnss_pos.transpose());
-            //Estimate the rotation matrix to transform from w_pos to gps_pos
-
-            Eigen::Vector3d rotation_axis = gnss_pos.cross(w_pos); //ideally will be aligned along Y-axis (UP) which is assumed to be commond between GPS and SLAM
-            rotation_axis.normalize();
-            double angle = std::acos(gnss_pos.dot(w_pos));
-
-            // degenrate case when vector a and b point's in opposite direction
-            if (cos(angle) == -1) {
-                spdlog::info("degenerate transformation case, will retry");
-                continue;
-            }
-
-            Eigen::Quaternion<double> t_quat(Eigen::AngleAxisd(angle, rotation_axis));
-            t_quat.normalize();
-            R_wgnss = t_quat.toRotationMatrix();
-
-            std::cout << "Rotation matrix (world->gps)\n"
-                      << R_wgnss << "\n rotation angle: " << angle << "\n";
-
-            gps_initialized = true;
-            SLAM->set_gps_initialized(R_wgnss);
-
-            //last_geo->copy_from(curr_geo);
-
-            SLAM->request_global_GPS_optim();
-            last_gba_frame_cnt = SLAM->get_current_nr_kfs();
-
-            break;
-        }
-        else {
-            //spdlog::info("GPS dist: {}\t curr_gps: {}", curr_geo->sq_distance_from(start_geo),curr_geo->value());
-        }
         //check every 2 sec
+        std::cout << curr_geo->value() << "\n";
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
     }
 
     while (slam_gps_running) {
+        if (SLAM->tracker_is_paused()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<unsigned int>(1000)));
+            continue;
+        }
+
         auto tp_1 = std::chrono::steady_clock::now();
 
         if (slam_tracking) {
@@ -341,8 +356,13 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
             auto rot_qn = R_wgnss.transpose() * rot_q.toRotationMatrix();
             auto euler = rot_qn.eulerAngles(0, 1, 2);
 
-            spdlog::info("UTM sq distance: {}\nt_wgnss: {}\ngnss pose: {}\nvid_time: {}\tgnss_time: {}",
-                         curr_geo->sq_distance_from(start_geo), t_wgnss.transpose(), pos_gnss.transpose(), time_s->video_timestamp.count(), time_s->gps_timestamp.count());
+            spdlog::info("UTM sq distance: {}\nt_wgnss: {}\ncam_pose: {}\ngnss pose: {}\nvid_time: {}\tgnss_time: {}",
+                         curr_geo->sq_distance_from(start_geo),
+                         t_wgnss.transpose(),
+                         camera_pose.block(0, 3, 3, 1).transpose(),
+                         pos_gnss.transpose(),
+                         time_s->video_timestamp.count(),
+                         time_s->gps_timestamp.count());
 
             //convert to gps_location format!!
 

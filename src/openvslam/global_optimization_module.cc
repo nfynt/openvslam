@@ -102,7 +102,7 @@ void global_optimization_module::run() {
         loop_detector_->set_current_keyframe(cur_keyfrm_);
 
 		//NFYNT
-		if (cur_keyfrm_->id_ %50 == 0) {
+		if (cur_keyfrm_->id_ %25 == 0) {
 			//Test for gps map scaling after every 50th keyframe
             global_gps_optimizer_->test_map_scale_factor();
         }

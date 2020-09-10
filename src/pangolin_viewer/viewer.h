@@ -56,6 +56,7 @@ public:
 
 	// Nfynt add
 	//void get_mat44_cam_pose(openvslam::Mat44_t& cam);
+    void draw_world_cs();
 
 private:
     /**
@@ -159,7 +160,9 @@ private:
     std::unique_ptr<pangolin::Var<bool>> menu_show_lms_;
     std::unique_ptr<pangolin::Var<bool>> menu_show_local_map_;
     std::unique_ptr<pangolin::Var<bool>> menu_show_graph_;
-    std::unique_ptr<pangolin::Var<bool>> menu_show_gps_data_;
+    std::unique_ptr<pangolin::Var<bool>> menu_show_gnss_data_;
+	//initialize gnss transformation
+    std::unique_ptr<pangolin::Var<bool>> menu_init_gnss_trans_;
     std::unique_ptr<pangolin::Var<bool>> menu_mapping_mode_;
     std::unique_ptr<pangolin::Var<bool>> menu_loop_detection_mode_;
     std::unique_ptr<pangolin::Var<bool>> menu_pause_;

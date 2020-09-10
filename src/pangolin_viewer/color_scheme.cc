@@ -5,6 +5,10 @@
 namespace pangolin_viewer {
 
 color_scheme::color_scheme(const std::string& color_set_str) {
+    col_red_ = {{1.0f, 0.0f, 0.0f}};
+    col_green_ = {{0.0f, 1.0f, 0.0f}};
+    col_blue_ = {{0.0f, 0.0f, 1.0f}};
+
     if (stricmp(color_set_str, std::string("white"))) {
         set_color_as_white();
     }
