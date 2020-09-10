@@ -18,6 +18,8 @@
 #include <spdlog/spdlog.h>
 #include "spdlog/fmt/ostr.h"
 
+#include <Eigen/Geometry>
+
 #include "openvslam/util/time_sync.h"
 
 #include "gps_network.h"
@@ -257,12 +259,15 @@ void run_gps() {
 }
 
 bool init_gnss_vslam_transformation() {
+
     //Estimate the camera position in SLAM world cs by inverse tranformation
     Eigen::Vector3d w_pos = -camera_pose.block(0, 0, 3, 3).transpose() * camera_pose.block(0, 3, 3, 1);
-
-    w_pos(1, 0) = 0; //ignore y position: assumed to be in same direction as UTM alt
-
     Eigen::Vector3d gnss_pos = gps_parser::get_direction_vector(*start_geo, *curr_geo);
+
+    //ignore y position: assumed to be in same direction as UTM alt
+    w_pos(1) = 0;
+    gnss_pos(1) = 0;
+
     spdlog::info("intializing GNSS transform\ngps dist: {}",
                  curr_geo->sq_distance_from(start_geo));
     std::cout << "\nCamera pos " << w_pos.transpose()
@@ -290,7 +295,8 @@ bool init_gnss_vslam_transformation() {
     R_wgnss = t_quat.toRotationMatrix();
 
     std::cout << "Rotation matrix (world->gps)\n"
-              << R_wgnss << "\n rotation angle: " << angle << "\n";
+              << R_wgnss << "\n rotation angle: " << angle 
+		<< "\nrotation axis: "<< rotation_axis.transpose()<<"\n";
 
     gps_initialized = true;
     SLAM->set_gps_initialized(R_wgnss);
@@ -339,7 +345,7 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
     while (slam_gps_running) {
         if (SLAM->tracker_is_paused()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<unsigned int>(1000)));
-			continue;
+            continue;
         }
 
         auto tp_1 = std::chrono::steady_clock::now();
@@ -362,10 +368,15 @@ void fuse_gps_slam(const string& crr_gps_path, int freq = 1) {
             auto rot_qn = R_wgnss.transpose() * rot_q.toRotationMatrix();
             auto euler = rot_qn.eulerAngles(0, 1, 2);
 
-            spdlog::info("UTM sq distance: {}\nt_wgnss: {}\ngnss pose: {}\nvid_time: {}\tgnss_time: {}",
-                         curr_geo->sq_distance_from(start_geo), t_wgnss.transpose(), pos_gnss.transpose(), time_s->video_timestamp.count(), time_s->gps_timestamp.count());
+            spdlog::info("UTM sq distance: {}\nt_wgnss: {}\ncam_pose: {}\ngnss pose: {}\nvid_time: {}\tgnss_time: {}",
+                         curr_geo->sq_distance_from(start_geo),
+                         t_wgnss.transpose(),
+                         camera_pose.block(0, 3, 3, 1).transpose(),
+                         pos_gnss.transpose(),
+                         time_s->video_timestamp.count(),
+                         time_s->gps_timestamp.count());
 
-            pos_gnss += Eigen::Vector3d(start_geo->x, 0, -start_geo->y);
+            pos_gnss += Eigen::Vector3d(start_geo->x, 0, start_geo->y);
             geo_utm loc(pos_gnss.x(), pos_gnss.z(), curr_geo->zone);
 
             gps_out = std::ofstream(crr_gps_path, std::ios::app);

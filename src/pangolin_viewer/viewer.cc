@@ -78,6 +78,10 @@ void viewer::run() {
 
         // draw horizontal grid
         draw_horizontal_grid();
+
+		//World coordinate axes
+        draw_world_cs();
+
         // draw the current camera frustum
         draw_current_cam_pose(gl_cam_pose_wc);
         // draw keyframes and graphs
@@ -163,6 +167,31 @@ void viewer::follow_camera(const pangolin::OpenGlMatrix& gl_cam_pose_wc) {
     }
 }
 
+void viewer::draw_world_cs() {
+    //Eigen::Matrix4f origin;
+    //origin << 0, 0, 1, 0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 1;
+    //origin << 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1;
+    //glPushMatrix();
+    //glMultTransposeMatrixf(origin.data());
+
+    glLineWidth(2);
+
+    glBegin(GL_LINES);
+
+    glColor3fv(cs_.col_red_.data());
+    draw_line(0, 0, 0, 1, 0, 0);    //x
+
+    glColor3fv(cs_.col_green_.data());
+    draw_line(0, 0, 0, 0, 1, 0);	//y
+
+    glColor3fv(cs_.col_blue_.data());
+    draw_line(0, 0, 0, 0, 0, 1);	//z
+
+    glEnd();
+
+    //glPopMatrix();
+}
+
 void viewer::draw_horizontal_grid() {
     if (!*menu_grid_) {
         return;
@@ -245,6 +274,21 @@ void viewer::draw_keyframes() {
             openvslam::Vec3_t pos_c = keyfrm->get_gnss_data().t_wgnss;
             pos_c /= 1.0;
             glVertex3fv(pos_c.cast<float>().eval().data());
+
+            glEnd();
+
+            glLineWidth(1);
+
+            glBegin(GL_LINES);
+
+            glColor3fv(cs_.col_red_.data());
+            draw_line(pos_c(0), pos_c(1), pos_c(2), pos_c(0) + 0.5f, pos_c(1), pos_c(2)); //x
+
+            glColor3fv(cs_.col_green_.data());
+            draw_line(pos_c(0), pos_c(1), pos_c(2), pos_c(0), pos_c(1)+0.5f, pos_c(2)); //y
+
+            glColor3fv(cs_.col_blue_.data());
+            draw_line(pos_c(0), pos_c(1), pos_c(2), pos_c(0), pos_c(1), pos_c(2)+0.5f); //z
 
             glEnd();
         }

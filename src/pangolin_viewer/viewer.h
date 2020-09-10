@@ -56,6 +56,7 @@ public:
 
 	// Nfynt add
 	//void get_mat44_cam_pose(openvslam::Mat44_t& cam);
+    void draw_world_cs();
 
 private:
     /**
