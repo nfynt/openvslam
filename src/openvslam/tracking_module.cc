@@ -9,10 +9,12 @@
 #include "openvslam/data/bow_database.h"
 #include "openvslam/feature/orb_extractor.h"
 #include "openvslam/match/projection.h"
+#include "openvslam/module/local_map_updater.h"
 #include "openvslam/util/image_converter.h"
 
 #include <chrono>
 #include <unordered_map>
+#include <utility>
 
 #include <spdlog/spdlog.h>
 
@@ -87,6 +89,14 @@ Mat44_t tracking_module::track_monocular_image(const cv::Mat& img, const double 
     }
     else {
         curr_frm_ = data::frame(img_gray_, timestamp, extractor_left_, bow_vocab_, camera_, cfg_->true_depth_thr_, mask);
+    }
+
+    if (system_->is_gps_data_used()) {
+        // get current gps readings and assign to frame
+        auto it = gnss_data_map_.find((long)(timestamp*1000));
+        // check if we have a gps reading at that timestamp, if yes insert it
+        if (it != gnss_data_map_.end())
+            curr_frm_.set_gnss(it->second);
     }
 
     track();
@@ -220,22 +230,25 @@ void tracking_module::track() {
         // update the frame statistics
         map_db_->update_frame_statistics(curr_frm_, tracking_state_ == tracker_state_t::Lost);
 
-        // if tracking is failed soon after initialization, reset the databases
-        if (tracking_state_ == tracker_state_t::Lost && curr_frm_.id_ < camera_->fps_) {
-            spdlog::info("tracking lost soon after initialization");
+        // if tracking is failed within 5.0 sec after initialization, reset the system
+        constexpr float init_retry_thr = 5.0;
+        if (tracking_state_ == tracker_state_t::Lost
+            && curr_frm_.id_ - initializer_.get_initial_frame_id() < camera_->fps_ * init_retry_thr) {
+            spdlog::info("tracking lost within {} sec after initialization", init_retry_thr);
             system_->request_reset();
             return;
         }
 
         // show message if tracking has been lost
         if (last_tracking_state_ != tracker_state_t::Lost && tracking_state_ == tracker_state_t::Lost) {
-            spdlog::info("tracking lost");
+            spdlog::info("tracking lost: frame {}", curr_frm_.id_);
         }
 
         // check to insert the new keyframe derived from the current frame
         if (succeeded && new_keyframe_is_needed()) {
             insert_new_keyframe();
         }
+
 
         // tidy up observations
         for (unsigned int idx = 0; idx < curr_frm_.num_keypts_; ++idx) {
@@ -385,18 +398,7 @@ bool tracking_module::optimize_current_frame_with_local_map() {
 }
 
 void tracking_module::update_local_map() {
-    update_local_keyframes();
-    update_local_landmarks();
-
-    map_db_->set_local_landmarks(local_landmarks_);
-}
-
-void tracking_module::update_local_keyframes() {
-    constexpr unsigned int max_num_local_keyfrms = 60;
-
-    // count the number of sharing landmarks between the current frame and each of the neighbor keyframes
-    // key: keyframe, value: number of sharing landmarks
-    std::unordered_map<data::keyframe*, unsigned int> keyfrm_weights;
+    // clean landmark associations
     for (unsigned int idx = 0; idx < curr_frm_.num_keypts_; ++idx) {
         auto lm = curr_frm_.landmarks_.at(idx);
         if (!lm) {
@@ -406,119 +408,26 @@ void tracking_module::update_local_keyframes() {
             curr_frm_.landmarks_.at(idx) = nullptr;
             continue;
         }
-
-        const auto observations = lm->get_observations();
-        for (auto obs : observations) {
-            ++keyfrm_weights[obs.first];
-        }
     }
 
-    if (keyfrm_weights.empty()) {
+    // acquire the current local map
+    constexpr unsigned int max_num_local_keyfrms = 60;
+    auto local_map_updater = module::local_map_updater(curr_frm_, max_num_local_keyfrms);
+    if (!local_map_updater.acquire_local_map()) {
         return;
     }
+    // update the variables
+    local_keyfrms_ = local_map_updater.get_local_keyframes();
+    local_landmarks_ = local_map_updater.get_local_landmarks();
+    auto nearest_covisibility = local_map_updater.get_nearest_covisibility();
 
-    // set the aforementioned keyframes as local keyframes
-    // and find the nearest keyframe
-    unsigned int max_weight = 0;
-    data::keyframe* nearest_covisibility = nullptr;
-
-    local_keyfrms_.clear();
-    local_keyfrms_.reserve(4 * keyfrm_weights.size());
-
-    for (auto& keyfrm_weight : keyfrm_weights) {
-        auto keyfrm = keyfrm_weight.first;
-        const auto weight = keyfrm_weight.second;
-
-        if (keyfrm->will_be_erased()) {
-            continue;
-        }
-
-        local_keyfrms_.push_back(keyfrm);
-
-        // avoid duplication
-        keyfrm->local_map_update_identifier = curr_frm_.id_;
-
-        // update the nearest keyframe
-        if (max_weight < weight) {
-            max_weight = weight;
-            nearest_covisibility = keyfrm;
-        }
-    }
-
-    // add the second-order keyframes to the local landmarks
-    auto add_local_keyframe = [this](data::keyframe* keyfrm) {
-        if (!keyfrm) {
-            return false;
-        }
-        if (keyfrm->will_be_erased()) {
-            return false;
-        }
-        // avoid duplication
-        if (keyfrm->local_map_update_identifier == curr_frm_.id_) {
-            return false;
-        }
-        keyfrm->local_map_update_identifier = curr_frm_.id_;
-        local_keyfrms_.push_back(keyfrm);
-        return true;
-    };
-    for (auto iter = local_keyfrms_.cbegin(), end = local_keyfrms_.cend(); iter != end; ++iter) {
-        if (max_num_local_keyfrms < local_keyfrms_.size()) {
-            break;
-        }
-
-        auto keyfrm = *iter;
-
-        // covisibilities of the neighbor keyframe
-        const auto neighbors = keyfrm->graph_node_->get_top_n_covisibilities(10);
-        for (auto neighbor : neighbors) {
-            if (add_local_keyframe(neighbor)) {
-                break;
-            }
-        }
-
-        // children of the spanning tree
-        const auto spanning_children = keyfrm->graph_node_->get_spanning_children();
-        for (auto child : spanning_children) {
-            if (add_local_keyframe(child)) {
-                break;
-            }
-        }
-
-        // parent of the spanning tree
-        auto parent = keyfrm->graph_node_->get_spanning_parent();
-        add_local_keyframe(parent);
-    }
-
-    // update the reference keyframe with the nearest one
+    // update the reference keyframe for the current frame
     if (nearest_covisibility) {
         ref_keyfrm_ = nearest_covisibility;
         curr_frm_.ref_keyfrm_ = ref_keyfrm_;
     }
-}
 
-void tracking_module::update_local_landmarks() {
-    local_landmarks_.clear();
-
-    for (auto keyfrm : local_keyfrms_) {
-        const auto lms = keyfrm->get_landmarks();
-
-        for (auto lm : lms) {
-            if (!lm) {
-                continue;
-            }
-            if (lm->will_be_erased()) {
-                continue;
-            }
-
-            // avoid duplication
-            if (lm->identifier_in_local_map_update_ == curr_frm_.id_) {
-                continue;
-            }
-            lm->identifier_in_local_map_update_ = curr_frm_.id_;
-
-            local_landmarks_.push_back(lm);
-        }
-    }
+    map_db_->set_local_landmarks(local_landmarks_);
 }
 
 void tracking_module::search_local_landmarks() {
@@ -646,6 +555,14 @@ bool tracking_module::check_and_execute_pause() {
     else {
         return false;
     }
+}
+
+
+//-------------------------------------------------
+//NFYNT additions
+
+void tracking_module::queue_gnss_data(const gnss::data& gnss_data) {
+    gnss_data_map_.insert(std::pair<long, gnss::data>(gnss_data.timestamp, gnss_data));
 }
 
 } // namespace openvslam

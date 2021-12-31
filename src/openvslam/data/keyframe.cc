@@ -1,6 +1,7 @@
 #include "openvslam/camera/perspective.h"
 #include "openvslam/camera/fisheye.h"
 #include "openvslam/camera/equirectangular.h"
+#include "openvslam/camera/radial_division.h"
 #include "openvslam/data/common.h"
 #include "openvslam/data/frame.h"
 #include "openvslam/data/keyframe.h"
@@ -35,11 +36,14 @@ keyframe::keyframe(const frame& frm, map_database* map_db, bow_database* bow_db)
       log_scale_factor_(frm.log_scale_factor_), scale_factors_(frm.scale_factors_),
       level_sigma_sq_(frm.level_sigma_sq_), inv_level_sigma_sq_(frm.inv_level_sigma_sq_),
       // observations
-      landmarks_(frm.landmarks_),
+      landmarks_(frm.landmarks_), gnss_data_(frm.gnss_data_),
       // databases
       map_db_(map_db), bow_db_(bow_db), bow_vocab_(frm.bow_vocab_) {
     // set pose parameters (cam_pose_wc_, cam_center_) using frm.cam_pose_cw_
     set_cam_pose(frm.cam_pose_cw_);
+
+	//NFYNT additions
+   // this->has_gnss = false;
 }
 
 keyframe::keyframe(const unsigned int id, const unsigned int src_frm_id, const double timestamp,
@@ -48,7 +52,7 @@ keyframe::keyframe(const unsigned int id, const unsigned int src_frm_id, const d
                    const std::vector<cv::KeyPoint>& undist_keypts, const eigen_alloc_vector<Vec3_t>& bearings,
                    const std::vector<float>& stereo_x_right, const std::vector<float>& depths, const cv::Mat& descriptors,
                    const unsigned int num_scale_levels, const float scale_factor,
-                   bow_vocabulary* bow_vocab, bow_database* bow_db, map_database* map_db)
+                   bow_vocabulary* bow_vocab, bow_database* bow_db, map_database* map_db, const gnss::data gnss_data)
     : // meta information
       id_(id), src_frm_id_(src_frm_id), timestamp_(timestamp),
       // camera parameters
@@ -65,7 +69,7 @@ keyframe::keyframe(const unsigned int id, const unsigned int src_frm_id, const d
       level_sigma_sq_(feature::orb_params::calc_level_sigma_sq(num_scale_levels, scale_factor)),
       inv_level_sigma_sq_(feature::orb_params::calc_inv_level_sigma_sq(num_scale_levels, scale_factor)),
       // others
-      landmarks_(std::vector<landmark*>(num_keypts, nullptr)),
+      landmarks_(std::vector<landmark*>(num_keypts, nullptr)), gnss_data_(gnss_data),
       // databases
       map_db_(map_db), bow_db_(bow_db), bow_vocab_(bow_vocab) {
     // compute BoW (bow_vec_, bow_feat_vec_) using descriptors_
@@ -82,6 +86,9 @@ keyframe::keyframe(const unsigned int id, const unsigned int src_frm_id, const d
     // TODO: should set spanning_parent_ using set_spanning_parent()
     // TODO: should set spanning_children_ using add_spanning_child()
     // TODO: should set loop_edges_ using add_loop_edge()
+
+	//NFYNT additions
+	//this->has_gnss = false;
 }
 
 nlohmann::json keyframe::to_json() const {
@@ -199,6 +206,7 @@ void keyframe::erase_landmark_with_index(const unsigned int idx) {
 }
 
 void keyframe::erase_landmark(landmark* lm) {
+    std::lock_guard<std::mutex> lock(mtx_observations_);
     int idx = lm->get_index_in_keyframe(this);
     if (0 <= idx) {
         landmarks_.at(static_cast<unsigned int>(idx)) = nullptr;
@@ -206,6 +214,7 @@ void keyframe::erase_landmark(landmark* lm) {
 }
 
 void keyframe::replace_landmark(landmark* lm, const unsigned int idx) {
+    std::lock_guard<std::mutex> lock(mtx_observations_);
     landmarks_.at(idx) = lm;
 }
 
@@ -318,6 +327,25 @@ Vec3_t keyframe::triangulate_stereo(const unsigned int idx) const {
         case camera::model_type_t::Equirectangular: {
             throw std::runtime_error("Not implemented: Stereo or RGBD of equirectangular camera model");
         }
+        case camera::model_type_t::RadialDivision: {
+            auto camera = static_cast<camera::radial_division*>(camera_);
+
+            const float depth = depths_.at(idx);
+            if (0.0 < depth) {
+                const float x = keypts_.at(idx).pt.x;
+                const float y = keypts_.at(idx).pt.y;
+                const float unproj_x = (x - camera->cx_) * depth * camera->fx_inv_;
+                const float unproj_y = (y - camera->cy_) * depth * camera->fy_inv_;
+                const Vec3_t pos_c{unproj_x, unproj_y, depth};
+
+                std::lock_guard<std::mutex> lock(mtx_pose_);
+                // camera座標 -> world座標
+                return cam_pose_wc_.block<3, 3>(0, 0) * pos_c + cam_pose_wc_.block<3, 1>(0, 3);
+            }
+            else {
+                return Vec3_t::Zero();
+            }
+        }
     }
 
     return Vec3_t::Zero();
@@ -379,11 +407,14 @@ void keyframe::prepare_for_erasing() {
 
     // 2. remove associations between keypoints and landmarks
 
-    for (const auto lm : landmarks_) {
-        if (!lm) {
-            continue;
+    {
+        std::lock_guard<std::mutex> lock(mtx_observations_);
+        for (const auto lm : landmarks_) {
+            if (!lm) {
+                continue;
+            }
+            lm->erase_observation(this);
         }
-        lm->erase_observation(this);
     }
 
     // 3. recover covisibility graph and spanning tree
@@ -406,6 +437,28 @@ void keyframe::prepare_for_erasing() {
 bool keyframe::will_be_erased() {
     return will_be_erased_;
 }
+
+//-------------------------------------------------------------------
+// NFYNT additions
+
+gnss::data keyframe::get_gnss_data() {
+    return gnss_data_;
+}
+
+void keyframe::update_t_wgnss_measurement(Eigen::Vector3d t_wgnss) {
+    gnss_data_.t_wgnss = t_wgnss;
+}
+
+//void keyframe::add_gnss_measurement(Eigen::Vector3d* t_g, double* var_gnss) {
+//    this->t_gnss = *t_g;
+//    this->gnss_variance = *var_gnss;
+//    this->has_gnss = true;
+//}
+//
+//bool keyframe::has_gnss_measurement() {
+//    return this->has_gnss;
+//}
+
 
 } // namespace data
 } // namespace openvslam

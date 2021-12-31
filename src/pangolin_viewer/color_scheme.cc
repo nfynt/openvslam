@@ -1,8 +1,14 @@
 #include "pangolin_viewer/color_scheme.h"
 
+#include <cctype>
+
 namespace pangolin_viewer {
 
 color_scheme::color_scheme(const std::string& color_set_str) {
+    col_red_ = {{1.0f, 0.0f, 0.0f}};
+    col_green_ = {{0.0f, 1.0f, 0.0f}};
+    col_blue_ = {{0.0f, 0.0f, 1.0f}};
+
     if (stricmp(color_set_str, std::string("white"))) {
         set_color_as_white();
     }
@@ -25,6 +31,7 @@ void color_scheme::set_color_as_white() {
     graph_line_ = {{0.0f, 1.0f, 0.0f, 0.6f}};
     lm_ = {{0.0f, 0.0f, 0.0f}};
     local_lm_ = {{1.0f, 0.0f, 0.0f}};
+    gps_rgb_ = {{1.0f, 0.78f, 0.27f}};	//orange
 }
 
 void color_scheme::set_color_as_black() {
@@ -35,6 +42,7 @@ void color_scheme::set_color_as_black() {
     graph_line_ = {{0.7f, 0.7f, 1.0f, 0.4f}};
     lm_ = {{0.9f, 0.9f, 0.9f}};
     local_lm_ = {{1.0f, 0.1f, 0.1f}};
+    gps_rgb_ = {{1.0f, 0.78f, 0.27f}};
 }
 
 void color_scheme::set_color_as_purple() {
@@ -45,6 +53,7 @@ void color_scheme::set_color_as_purple() {
     graph_line_ = {{0.7f, 0.7f, 1.0f, 0.4f}};
     lm_ = {{0.9f, 0.9f, 0.9f}};
     local_lm_ = {{0.0f, 1.0f, 0.0f}};
+    gps_rgb_ = {{1.0f, 0.78f, 0.27f}};
 }
 
 bool color_scheme::stricmp(const std::string& str1, const std::string& str2) {

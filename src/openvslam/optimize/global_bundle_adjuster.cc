@@ -2,9 +2,9 @@
 #include "openvslam/data/landmark.h"
 #include "openvslam/data/map_database.h"
 #include "openvslam/optimize/global_bundle_adjuster.h"
-#include "openvslam/optimize/g2o/landmark_vertex_container.h"
-#include "openvslam/optimize/g2o/se3/shot_vertex_container.h"
-#include "openvslam/optimize/g2o/se3/reproj_edge_wrapper.h"
+#include "openvslam/optimize/internal/landmark_vertex_container.h"
+#include "openvslam/optimize/internal/se3/shot_vertex_container.h"
+#include "openvslam/optimize/internal/se3/reproj_edge_wrapper.h"
 #include "openvslam/util/converter.h"
 
 #include <g2o/core/solver.h>
@@ -14,8 +14,11 @@
 #include <g2o/types/sba/types_six_dof_expmap.h>
 #include <g2o/solvers/eigen/linear_solver_eigen.h>
 #include <g2o/solvers/csparse/linear_solver_csparse.h>
-#include <g2o/solvers/cholmod/linear_solver_cholmod.h>
 #include <g2o/core/optimization_algorithm_levenberg.h>
+
+#include "openvslam/optimize/internal/gnss_measurement_edge.h"
+#include <spdlog/spdlog.h>
+#include <iostream>
 
 namespace openvslam {
 namespace optimize {
@@ -24,31 +27,31 @@ global_bundle_adjuster::global_bundle_adjuster(data::map_database* map_db, const
     : map_db_(map_db), num_iter_(num_iter), use_huber_kernel_(use_huber_kernel) {}
 
 void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_global_BA, bool* const force_stop_flag) const {
-    // 1. データを集める
-
+    // 1. データを集める - Collect data
+	std::cout << "global_bundle_adjuting\n";
     const auto keyfrms = map_db_->get_all_keyframes();
     const auto lms = map_db_->get_all_landmarks();
     std::vector<bool> is_optimized_lm(lms.size(), true);
 
-    // 2. optimizerを構築
+    // 2. optimizerを構築 - build optimizer
 
-    auto linear_solver = ::g2o::make_unique<::g2o::LinearSolverCSparse<::g2o::BlockSolver_6_3::PoseMatrixType>>();
-    auto block_solver = ::g2o::make_unique<::g2o::BlockSolver_6_3>(std::move(linear_solver));
-    auto algorithm = new ::g2o::OptimizationAlgorithmLevenberg(std::move(block_solver));
+    auto linear_solver = g2o::make_unique<g2o::LinearSolverCSparse<g2o::BlockSolver_6_3::PoseMatrixType>>();
+    auto block_solver = g2o::make_unique<g2o::BlockSolver_6_3>(std::move(linear_solver));
+    auto algorithm = new g2o::OptimizationAlgorithmLevenberg(std::move(block_solver));
 
-    ::g2o::SparseOptimizer optimizer;
+    g2o::SparseOptimizer optimizer;
     optimizer.setAlgorithm(algorithm);
 
     if (force_stop_flag) {
         optimizer.setForceStopFlag(force_stop_flag);
     }
 
-    // 3. keyframeをg2oのvertexに変換してoptimizerにセットする
+    // 3. keyframeをg2oのvertexに変換してoptimizerにセットする - Convert keyframe to g2o vertex and set to optimizer
 
     // shot vertexのcontainer
-    g2o::se3::shot_vertex_container keyfrm_vtx_container(0, keyfrms.size());
+    internal::se3::shot_vertex_container keyfrm_vtx_container(0, keyfrms.size());
 
-    // keyframesをoptimizerにセット
+    // keyframesをoptimizerにセット - set keyframes to optimizer
     for (const auto keyfrm : keyfrms) {
         if (!keyfrm) {
             continue;
@@ -61,17 +64,17 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
         optimizer.addVertex(keyfrm_vtx);
     }
 
-    // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する
+    // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する - Connect keyframe and landmark vertex with reprojection edge
 
     // landmark vertexのcontainer
-    g2o::landmark_vertex_container lm_vtx_container(keyfrm_vtx_container.get_max_vertex_id() + 1, lms.size());
+    internal::landmark_vertex_container lm_vtx_container(keyfrm_vtx_container.get_max_vertex_id() + 1, lms.size());
 
     // reprojection edgeのcontainer
-    using reproj_edge_wrapper = g2o::se3::reproj_edge_wrapper<data::keyframe>;
+    using reproj_edge_wrapper = internal::se3::reproj_edge_wrapper<data::keyframe>;
     std::vector<reproj_edge_wrapper> reproj_edge_wraps;
-    reproj_edge_wraps.reserve(keyfrms.size() * lms.size());
+    reproj_edge_wraps.reserve(10 * lms.size());
 
-    // 有意水準5%のカイ2乗値
+    // 有意水準5%のカイ2乗値 - Chi - square value with a significance level of 5 %
     // 自由度n=2
     constexpr float chi_sq_2D = 5.99146;
     const float sqrt_chi_sq_2D = std::sqrt(chi_sq_2D);
@@ -120,6 +123,20 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
             reproj_edge_wraps.push_back(reproj_edge_wrap);
             optimizer.addEdge(reproj_edge_wrap.edge_);
             ++num_edges;
+
+            //Add dangling GNSS measurement edge for keyframe
+            //if (keyfrm->has_gnss_measurement()) {
+            //    //g2o::OptimizableGraph::Edge* edge_;
+            //    auto gnss_edge = new internal::gnss_measurement_edge();
+            //    Vec3_t obs = keyfrm->t_gnss;
+            //    //gnss_edge->setVertex(0, gnss_vrt);
+            //    gnss_edge->setMeasurement(obs);                                             //zk
+            //    gnss_edge->setInformation(Mat33_t::Identity() * 1 / keyfrm->gnss_variance); //wk
+            //    //edge_ = gnss_edge;
+            //    //kernel function
+            //    gnss_edge->setRobustKernel(new g2o::RobustKernelHuber());
+            //    optimizer.addEdge(gnss_edge);
+            //}
         }
 
         if (num_edges == 0) {
@@ -127,8 +144,9 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
             is_optimized_lm.at(i) = false;
         }
     }
+    spdlog::info("global BA edge count: {}", reproj_edge_wraps.size());
 
-    // 5. 最適化を実行
+    // 5. 最適化を実行 - Perform optimization
 
     optimizer.initializeOptimization();
     optimizer.optimize(num_iter_);
@@ -137,7 +155,7 @@ void global_bundle_adjuster::optimize(const unsigned int lead_keyfrm_id_in_globa
         return;
     }
 
-    // 6. 結果を取り出す
+    // 6. 結果を取り出す - Retrieve results
 
     for (auto keyfrm : keyfrms) {
         if (keyfrm->will_be_erased()) {

@@ -6,6 +6,8 @@
 #include "openvslam/util/converter.h"
 #include "openvslam/data/bow_vocabulary.h"
 
+#include "openvslam/data/gnss_data.h"
+
 #include <vector>
 #include <atomic>
 
@@ -244,6 +246,18 @@ public:
     //! list of 1 / sigma^2 for optimization
     std::vector<float> inv_level_sigma_sq_;
 
+	//--------------------------------------------
+	//NFYNT additions
+
+	
+    // Set gnss measurement
+    void set_gnss(const gnss::data& gnss_data);
+	// Get gnss measurement
+    gnss::data get_gnss();
+
+    //! gps measurement
+    gnss::data gnss_data_;
+
 private:
     //! enumeration to control the behavior of extract_orb()
     enum class image_side { Left,
@@ -272,6 +286,8 @@ private:
     Mat33_t rot_wc_;
     //! translation: camera -> world
     Vec3_t cam_center_;
+
+	
 };
 
 } // namespace data

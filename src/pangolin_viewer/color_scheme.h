@@ -3,6 +3,7 @@
 
 #include <array>
 #include <string>
+#include <cctype>
 
 namespace pangolin_viewer {
 
@@ -27,15 +28,27 @@ public:
     //! local_landmark color
     std::array<float, 3> local_lm_{};
 
-private:
-    void set_color_as_white();
+    //! GPS color
+    std::array<float, 3> gps_rgb_{};
 
-    void set_color_as_black();
+    //! Extra color constants
 
-    void set_color_as_purple();
+    //red
+    std::array<float, 3> col_red_{};
+    //green
+    std::array<float, 3> col_green_{};
+    //blue
+    std::array<float, 3> col_blue_{};
 
-    static bool stricmp(const std::string& str1, const std::string& str2);
-};
+    private:
+        void set_color_as_white();
+
+        void set_color_as_black();
+
+        void set_color_as_purple();
+
+        static bool stricmp(const std::string& str1, const std::string& str2);
+    };
 
 } // namespace pangolin_viewer
 

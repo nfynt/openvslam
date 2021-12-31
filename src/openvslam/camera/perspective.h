@@ -14,6 +14,8 @@ namespace camera {
 
 class perspective final : public base {
 public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
     perspective(const std::string& name, const setup_type_t& setup_type, const color_order_t& color_order,
                 const unsigned int cols, const unsigned int rows, const double fps,
                 const double fx, const double fy, const double cx, const double cy,
@@ -60,6 +62,7 @@ public:
         return Vec3_t{x_normalized / l2_norm, y_normalized / l2_norm, 1.0 / l2_norm};
     }
 
+	// find direction vectors for undist_keypts from camera center
     void convert_keypoints_to_bearings(const std::vector<cv::KeyPoint>& undist_keypts, eigen_alloc_vector<Vec3_t>& bearings) const override final;
 
     cv::KeyPoint convert_bearing_to_keypoint(const Vec3_t& bearing) const override final {

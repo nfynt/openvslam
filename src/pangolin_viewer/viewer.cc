@@ -78,6 +78,10 @@ void viewer::run() {
 
         // draw horizontal grid
         draw_horizontal_grid();
+
+		//World coordinate axes
+        draw_world_cs();
+
         // draw the current camera frustum
         draw_current_cam_pose(gl_cam_pose_wc);
         // draw keyframes and graphs
@@ -91,6 +95,16 @@ void viewer::run() {
 
         cv::imshow(frame_viewer_name_, frame_publisher_->draw_frame());
         cv::waitKey(interval_ms_);
+
+		// NFYNT. check to estimate GNSS-VSLAM transformation
+
+		if (*menu_init_gnss_trans_){
+			//send trigger to estimate
+
+            system_->request_gnss_trans_init();
+			//allow initialization multiple times
+            *menu_init_gnss_trans_ = false;
+		}
 
         // 3. state transition
 
@@ -128,6 +142,8 @@ void viewer::create_menu_panel() {
     menu_show_lms_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Show Landmarks", true, true));
     menu_show_local_map_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Show Local Map", true, true));
     menu_show_graph_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Show Graph", true, true));
+    menu_show_gnss_data_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Show GNSS", true, true));
+    menu_init_gnss_trans_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Init GNSS trans", false, false));
     menu_mapping_mode_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Mapping", mapping_mode_, true));
     menu_loop_detection_mode_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Loop Detection", loop_detection_mode_, true));
     menu_pause_ = std::unique_ptr<pangolin::Var<bool>>(new pangolin::Var<bool>("menu.Pause", false, true));
@@ -149,6 +165,31 @@ void viewer::follow_camera(const pangolin::OpenGlMatrix& gl_cam_pose_wc) {
     else if (!*menu_follow_camera_ && follow_camera_) {
         follow_camera_ = false;
     }
+}
+
+void viewer::draw_world_cs() {
+    //Eigen::Matrix4f origin;
+    //origin << 0, 0, 1, 0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 1;
+    //origin << 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1;
+    //glPushMatrix();
+    //glMultTransposeMatrixf(origin.data());
+
+    glLineWidth(2);
+
+    glBegin(GL_LINES);
+
+    glColor3fv(cs_.col_red_.data());
+    draw_line(0, 0, 0, 1, 0, 0);    //x
+
+    glColor3fv(cs_.col_green_.data());
+    draw_line(0, 0, 0, 0, 1, 0);	//y
+
+    glColor3fv(cs_.col_blue_.data());
+    draw_line(0, 0, 0, 0, 0, 1);	//z
+
+    glEnd();
+
+    //glPopMatrix();
 }
 
 void viewer::draw_horizontal_grid() {
@@ -184,9 +225,15 @@ void viewer::draw_horizontal_grid() {
 
 pangolin::OpenGlMatrix viewer::get_current_cam_pose() {
     const auto cam_pose_cw = map_publisher_->get_current_cam_pose();
+    //std::cout <<"\n" << cam_pose_cw << std::endl;
     const pangolin::OpenGlMatrix gl_cam_pose_wc(cam_pose_cw.inverse().eval());
     return gl_cam_pose_wc;
 }
+
+//void viewer::get_mat44_cam_pose(openvslam::Mat44_t& cam_pose) {
+//	/*cam_pose = gl_cam_pose_wc.
+//    cam_pose = map_publisher_->get_current_cam_pose();*/
+//}
 
 void viewer::draw_current_cam_pose(const pangolin::OpenGlMatrix& gl_cam_pose_wc) {
     // frustum size of the frame
@@ -212,6 +259,38 @@ void viewer::draw_keyframes() {
                 continue;
             }
             draw_camera(keyfrm->get_cam_pose_inv(), w);
+        }
+    }
+    if (*menu_show_gnss_data_) {
+        glColor3fv(cs_.kf_line_.data());
+        for (const auto keyfrm : keyfrms) {
+            if (!keyfrm || keyfrm->will_be_erased()) {
+                continue;
+            }
+            glPointSize(5.f * point_size_ * *menu_lm_size_);
+            glColor3fv(cs_.gps_rgb_.data());
+            glBegin(GL_POINTS);
+
+            openvslam::Vec3_t pos_c = keyfrm->get_gnss_data().t_wgnss;
+            pos_c /= 1.0;
+            glVertex3fv(pos_c.cast<float>().eval().data());
+
+            glEnd();
+
+            glLineWidth(1);
+
+            glBegin(GL_LINES);
+
+            glColor3fv(cs_.col_red_.data());
+            draw_line(pos_c(0), pos_c(1), pos_c(2), pos_c(0) + 0.5f, pos_c(1), pos_c(2)); //x
+
+            glColor3fv(cs_.col_green_.data());
+            draw_line(pos_c(0), pos_c(1), pos_c(2), pos_c(0), pos_c(1)+0.5f, pos_c(2)); //y
+
+            glColor3fv(cs_.col_blue_.data());
+            draw_line(pos_c(0), pos_c(1), pos_c(2), pos_c(0), pos_c(1), pos_c(2)+0.5f); //z
+
+            glEnd();
         }
     }
 

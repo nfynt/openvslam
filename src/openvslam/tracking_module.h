@@ -8,6 +8,8 @@
 #include "openvslam/module/keyframe_inserter.h"
 #include "openvslam/module/frame_tracker.h"
 
+#include "openvslam/data/gnss_data.h"
+
 #include <mutex>
 
 #include <opencv2/core/core.hpp>
@@ -123,6 +125,12 @@ public:
     //! elapsed microseconds for each tracking
     double elapsed_ms_ = 0.0;
 
+    //----------------------------------------------
+    //NFYNT additions
+
+    // add world gnss measurement with variance factor to queue
+    void queue_gnss_data(const gnss::data& gnss_data);
+
 protected:
     //-----------------------------------------
     // tracking processes
@@ -150,12 +158,6 @@ protected:
 
     //! Update the local map
     void update_local_map();
-
-    //! Update the local keyframes
-    void update_local_keyframes();
-
-    //! Update the local landmarks
-    void update_local_landmarks();
 
     //! Acquire more 2D-3D matches using initial camera pose estimation
     void search_local_landmarks();
@@ -253,6 +255,12 @@ protected:
 
     //! Pause of the tracking module is requested or not
     bool pause_is_requested_ = false;
+
+	//--------------------------------------
+	//NFYNT additions
+
+    // maps timestamp to gps::data
+    std::map<long, gnss::data> gnss_data_map_;
 };
 
 } // namespace openvslam

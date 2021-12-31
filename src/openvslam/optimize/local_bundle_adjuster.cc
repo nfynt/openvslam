@@ -2,9 +2,11 @@
 #include "openvslam/data/landmark.h"
 #include "openvslam/data/map_database.h"
 #include "openvslam/optimize/local_bundle_adjuster.h"
-#include "openvslam/optimize/g2o/landmark_vertex_container.h"
-#include "openvslam/optimize/g2o/se3/shot_vertex_container.h"
-#include "openvslam/optimize/g2o/se3/reproj_edge_wrapper.h"
+#include "openvslam/optimize/internal/gnss_vertex.h"
+#include "openvslam/optimize/internal/gnss_measurement_edge.h"
+#include "openvslam/optimize/internal/landmark_vertex_container.h"
+#include "openvslam/optimize/internal/se3/shot_vertex_container.h"
+#include "openvslam/optimize/internal/se3/reproj_edge_wrapper.h"
 #include "openvslam/util/converter.h"
 
 #include <unordered_map>
@@ -18,8 +20,9 @@
 #include <g2o/solvers/eigen/linear_solver_eigen.h>
 #include <g2o/solvers/dense/linear_solver_dense.h>
 #include <g2o/solvers/csparse/linear_solver_csparse.h>
-#include <g2o/solvers/cholmod/linear_solver_cholmod.h>
 #include <g2o/core/optimization_algorithm_levenberg.h>
+
+#include <iostream>
 
 namespace openvslam {
 namespace optimize {
@@ -29,13 +32,14 @@ local_bundle_adjuster::local_bundle_adjuster(const unsigned int num_first_iter,
     : num_first_iter_(num_first_iter), num_second_iter_(num_second_iter) {}
 
 void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, bool* const force_stop_flag) const {
-    // 1. local/fixed keyframes, local landmarksを集計する
-
+    // 1. local/fixed keyframes, local landmarksを集計する (sum up)
+    
     // correct local keyframes of the current keyframe
     std::unordered_map<unsigned int, data::keyframe*> local_keyfrms;
 
     local_keyfrms[curr_keyfrm->id_] = curr_keyfrm;
     const auto curr_covisibilities = curr_keyfrm->graph_node_->get_covisibilities();
+    int extra_frm = 0;
     for (auto local_keyfrm : curr_covisibilities) {
         if (!local_keyfrm) {
             continue;
@@ -45,7 +49,18 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
         }
 
         local_keyfrms[local_keyfrm->id_] = local_keyfrm;
+
+		//NFYNT additions
+		//broaden the local keyframe search - big LBA
+        const auto new_covisib = local_keyfrm->graph_node_->get_covisibilities();
+        for (auto lk : new_covisib) {
+            if (!lk || lk->will_be_erased() || local_keyfrms.find(lk->id_)!=local_keyfrms.end())
+                continue;
+            local_keyfrms[lk->id_] = lk;
+            extra_frm++;
+		}
     }
+    //std::cout << "LBA local frame cnt: " << local_keyfrms.size() << "\textra: " << extra_frm << "\n";
 
     // correct local landmarks seen in local keyframes
     std::unordered_map<unsigned int, data::landmark*> local_lms;
@@ -60,7 +75,7 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
                 continue;
             }
 
-            // 重複を避ける
+            // 重複を避ける (Avoid duplication)
             if (local_lms.count(local_lm->id_)) {
                 continue;
             }
@@ -83,12 +98,12 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
                 continue;
             }
 
-            // local keyframesに属しているときは追加しない
+            // local keyframesに属しているときは追加しない - (Do not add when belonging to local keframe)
             if (local_keyfrms.count(fixed_keyfrm->id_)) {
                 continue;
             }
 
-            // 重複を避ける
+            // 重複を避ける - Avoid duplication
             if (fixed_keyfrms.count(fixed_keyfrm->id_)) {
                 continue;
             }
@@ -97,27 +112,27 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
         }
     }
 
-    // 2. optimizerを構築
+    // 2. optimizerを構築 - build optimizer
 
-    auto linear_solver = ::g2o::make_unique<::g2o::LinearSolverCSparse<::g2o::BlockSolver_6_3::PoseMatrixType>>();
-    auto block_solver = ::g2o::make_unique<::g2o::BlockSolver_6_3>(std::move(linear_solver));
-    auto algorithm = new ::g2o::OptimizationAlgorithmLevenberg(std::move(block_solver));
+    auto linear_solver = g2o::make_unique<g2o::LinearSolverCSparse<g2o::BlockSolver_6_3::PoseMatrixType>>();
+    auto block_solver = g2o::make_unique<g2o::BlockSolver_6_3>(std::move(linear_solver));
+    auto algorithm = new g2o::OptimizationAlgorithmLevenberg(std::move(block_solver));
 
-    ::g2o::SparseOptimizer optimizer;
+    g2o::SparseOptimizer optimizer;
     optimizer.setAlgorithm(algorithm);
 
     if (force_stop_flag) {
         optimizer.setForceStopFlag(force_stop_flag);
     }
 
-    // 3. keyframeをg2oのvertexに変換してoptimizerにセットする
+    // 3. keyframeをg2oのvertexに変換してoptimizerにセットする - Convert keyframe to g2o vertex and set to optimizer
 
     // shot vertexのcontainer
-    g2o::se3::shot_vertex_container keyfrm_vtx_container(0, local_keyfrms.size() + fixed_keyfrms.size());
-    // vertexに変換されたkeyframesを保存しておく
+    internal::se3::shot_vertex_container keyfrm_vtx_container(0, local_keyfrms.size() + fixed_keyfrms.size());
+    // vertexに変換されたkeyframesを保存しておく - Save the converted keyframes to vertex
     std::unordered_map<unsigned int, data::keyframe*> all_keyfrms;
 
-    // local keyframesをoptimizerにセット
+    // local keyframesをoptimizerにセット - Set local keyframes to optimizer
     for (auto& id_local_keyfrm_pair : local_keyfrms) {
         auto local_keyfrm = id_local_keyfrm_pair.second;
 
@@ -126,7 +141,7 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
         optimizer.addVertex(keyfrm_vtx);
     }
 
-    // fixed keyframesをoptimizerにセット
+    // fixed keyframesをoptimizerにセット - Set fixed keyframes to optimizer
     for (auto& id_fixed_keyfrm_pair : fixed_keyfrms) {
         auto fixed_keyfrm = id_fixed_keyfrm_pair.second;
 
@@ -135,28 +150,48 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
         optimizer.addVertex(keyfrm_vtx);
     }
 
-    // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する
+    //NFYNT additions
+
+    //3.1 add GNSS measurement vertices		== create new wrapper for GNSS vertices
+
+    //auto gnss_vrt = new internal::gnss_vertex();
+
+    //if (curr_keyfrm->has_gnss_measurement()) {
+    //    unsigned int gnss_id_offset = 100000;
+    //    Eigen::Vector3d est = curr_keyfrm->get_cam_pose().block<3, 1>(0, 3);
+    //    gnss_vrt->setId(gnss_id_offset + curr_keyfrm->id_);
+    //    gnss_vrt->setEstimate(est);
+    //    //gnss_vrt->sigma_sq = curr_keyfrm->gnss_variance;
+    //    gnss_vrt->setFixed(false);
+    //    gnss_vrt->setMarginalized(true);
+    //    optimizer.addVertex(gnss_vrt);
+    //}
+    //else {
+    //    delete gnss_vrt;
+    //}
+
+    // 4. keyframeとlandmarkのvertexをreprojection edgeで接続する - Connect keyframe and landmark vertex with reprojection edge
 
     // landmark vertexのcontainer
-    g2o::landmark_vertex_container lm_vtx_container(keyfrm_vtx_container.get_max_vertex_id() + 1, local_lms.size());
+    internal::landmark_vertex_container lm_vtx_container(keyfrm_vtx_container.get_max_vertex_id() + 1, local_lms.size());
 
     // reprojection edgeのcontainer
-    using reproj_edge_wrapper = g2o::se3::reproj_edge_wrapper<data::keyframe>;
+    using reproj_edge_wrapper = internal::se3::reproj_edge_wrapper<data::keyframe>;
     std::vector<reproj_edge_wrapper> reproj_edge_wraps;
     reproj_edge_wraps.reserve(all_keyfrms.size() * local_lms.size());
 
-    // 有意水準5%のカイ2乗値
-    // 自由度n=2
+    // 有意水準5%のカイ2乗値 - Chi - square value with a significance level of 5 %
+    // 自由度n=2 - Degrees of freedom=2
     constexpr float chi_sq_2D = 5.99146;
     const float sqrt_chi_sq_2D = std::sqrt(chi_sq_2D);
     // 自由度n=3
     constexpr float chi_sq_3D = 7.81473;
     const float sqrt_chi_sq_3D = std::sqrt(chi_sq_3D);
-
+    extra_frm = 0;
     for (auto& id_local_lm_pair : local_lms) {
         auto local_lm = id_local_lm_pair.second;
 
-        // landmarkをg2oのvertexに変換してoptimizerにセットする
+        // landmarkをg2oのvertexに変換してoptimizerにセットする - Convert landmark to g2o vertex and set to optimizer
         auto lm_vtx = lm_vtx_container.create_vertex(local_lm, false);
         optimizer.addVertex(lm_vtx);
 
@@ -174,7 +209,7 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
             const auto keyfrm_vtx = keyfrm_vtx_container.get_vertex(keyfrm);
             const auto& undist_keypt = keyfrm->undist_keypts_.at(idx);
             const float x_right = keyfrm->stereo_x_right_.at(idx);
-            const float inv_sigma_sq = keyfrm->inv_level_sigma_sq_.at(undist_keypt.octave);
+            const float inv_sigma_sq = keyfrm->inv_level_sigma_sq_.at(undist_keypt.octave); // 1/scale factor depending upon orb levels (=8). i.e 1/1.2 for ocatave 1
             const auto sqrt_chi_sq = (keyfrm->camera_->setup_type_ == camera::setup_type_t::Monocular)
                                          ? sqrt_chi_sq_2D
                                          : sqrt_chi_sq_3D;
@@ -186,7 +221,33 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
         }
     }
 
-    // 5. 1回目の最適化を実行
+    //4.1 GNSS unary edge for current keyframe
+    //Add dangling GNSS measurement edge for existing keyframe
+	//for (auto kf : local_keyfrms)
+	//{
+	//	if (kf.second->has_gnss_measurement())
+	//	{
+ //           const auto vtx = keyfrm_vtx_container.get_vertex(kf.first);
+ //           const auto gnss_edge = new internal::gnss_measurement_edge();
+ //           Vec3_t obs = kf.second->t_gnss;
+ //           gnss_edge->setVertex(0, vtx);
+ //           gnss_edge->setMeasurement(obs);                                                  //zk
+ //           gnss_edge->setInformation(Mat33_t::Identity() * 1 / kf.second->gnss_variance); //wk
+ //           
+	//		//kernel function
+ //           gnss_edge->setRobustKernel(new g2o::RobustKernelHuber());
+ //           optimizer.addEdge(gnss_edge);
+ //           extra_frm++;
+	//	}
+	//}
+
+ //   if (curr_keyfrm->has_gnss_measurement()) {
+ //   Vec3_t obs = curr_keyfrm->t_gnss;
+ //   std::cout << curr_keyfrm->id_ << "\t t_gnss=" << obs.transpose() << std::endl;
+ //   //std::cout << "LBA gnss edges: " << extra_frm << "\n";
+ //   }
+
+    // 5. 1回目の最適化を実行 - Run the first optimization
 
     if (force_stop_flag) {
         if (*force_stop_flag) {
@@ -194,10 +255,11 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
         }
     }
 
+    //optimizer.setVerbose(true);
     optimizer.initializeOptimization();
     optimizer.optimize(num_first_iter_);
 
-    // 6. アウトライア除去をして2回目の最適化を実行
+    // 6. アウトライア除去をして2回目の最適化を実行 - Remove outliers and run second optimization
 
     bool run_robust_BA = true;
 
@@ -234,7 +296,7 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
         optimizer.optimize(num_second_iter_);
     }
 
-    // 7. アウトライアを集計する
+    // 7. アウトライアを集計する - Aggregate outliers
 
     std::vector<std::pair<data::keyframe*, data::landmark*>> outlier_observations;
     outlier_observations.reserve(reproj_edge_wraps.size());
@@ -259,7 +321,7 @@ void local_bundle_adjuster::optimize(openvslam::data::keyframe* curr_keyfrm, boo
         }
     }
 
-    // 8. 情報を更新
+    // 8. 情報を更新 - Update information
 
     {
         std::lock_guard<std::mutex> lock(data::map_database::mtx_database_);

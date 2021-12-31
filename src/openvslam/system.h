@@ -4,10 +4,13 @@
 #include "openvslam/type.h"
 #include "openvslam/data/bow_vocabulary.h"
 
+#include "openvslam/util/time_sync.h"
+
 #include <string>
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <vector>
 
 #include <opencv2/core/core.hpp>
 
@@ -143,6 +146,39 @@ public:
     //!! Termination of the system is requested or not
     bool terminate_is_requested() const;
 
+    //-----------------------------------------------
+    //NFYNT updates
+
+	//add callback for GNSS initialization triggered from UI
+	void add_gnss_init_callback(void (*func)());
+
+    //! Request to gnss transformation intialization
+    void request_gnss_trans_init();
+
+    //! Global GPS optim is running
+    bool global_GPS_optim_is_running() const;
+
+    //! get current nr of keyframes
+    unsigned int get_current_nr_kfs() const;
+
+    //! request global optim
+    void request_global_GPS_optim();
+
+    void set_gps_initialized(Eigen::Matrix3d R_wgnss) const;
+
+    void set_gps_data_is_used();
+    bool is_gps_data_used();
+
+    //SLAM tracking state is active
+    bool is_tracking() const;
+
+    //set reference for time_sync. Call it after the system contructor
+    void set_time_sync_ptr(util::time_sync* time_s);
+
+    //Add gps translation to queue (transformed from utm to SLAM world)
+    //and variance of measurement; the timestamp in milliseconds since the start of this system
+    void feed_GNSS_measurement(Eigen::Vector3d t_wgnss, double var_gps, long timestamp);
+
 private:
     //! Check reset request of the system
     void check_reset_request();
@@ -206,6 +242,12 @@ private:
 
     //! mutex for flags of enable/disable loop detector
     mutable std::mutex mtx_loop_detector_;
+
+    //------------------------------------
+    //NFYNT additions
+
+    bool is_gps_used = false;
+    vector<void (*)()> gnss_init_callbacks;
 };
 
 } // namespace openvslam
